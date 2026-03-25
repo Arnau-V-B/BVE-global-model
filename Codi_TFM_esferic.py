@@ -79,25 +79,12 @@ if __name__ == '__main__':
 
 	# We generate an output folder to save the results of the simulation
 	output_dir = "output_spherical/"
-	output_name = "exp_0"
 	os.makedirs(output_dir, exist_ok=True)
 
 	# We define all the main parameters that will be used in the simulation
 	print("Obtaining model parameters ...\n")
 
-	# We open and read the horizontal velocity dataset
-	dataset_name = 'uv_19-02-2026_0000_glob.nc'
-	ds = xr.open_dataset(dataset_name, engine='netcdf4')
-	time_value = ds['valid_time'].values[0]
-	press_lvl = ds['pressure_level'].values[0]
-
-	# We get the horizontal velocity components
-	u0 = ds['u'].sel(valid_time=time_value, pressure_level=press_lvl).values
-	v0 = ds['v'].sel(valid_time=time_value, pressure_level=press_lvl).values
-
-	# We get the latitude and longitude coordinates (nlat = N+1, nlon = 2N)
-	lat = ds['latitude'].values
-	lon = ds['longitude'].values
+	from config import *
 	
 	# We generate the Driscoll-Healy spherical grid (i.e. equally spaced Nx2N)
 	nlat_dh = len(lat) - 1
@@ -105,21 +92,9 @@ if __name__ == '__main__':
 	lon_dh = np.linspace(0, 360, 2*nlat_dh, endpoint=False)
 	lons_dh, lats_dh = np.meshgrid(lon_dh, lat_dh)
 
-	# We define the Earth parameters
-	R = 6371 * 10**3
-	g = 9.806
-	eta = 10 * (3 * nlat_dh / np.pi)**4
-	Omega = 2 * np.pi / 86400
+	# We define the Coriolis parameter field and the hyperdifussion coefficient
 	f = 2 * Omega * np.sin(np.pi * lats_dh / 180)
-
-	# We define the time integration parameters
-	ti = 0
-	tf = 12 * 3600
-	dt = 150
-	save_time = 6 * 3600
-	# RAW filter
-	nu = 0.1
-	alpha = 0.5
+	eta = 10 * (3 * nlat_dh / np.pi)**4
 
 	# We generate empty lists to keep track of the conserved quantities:
 	# kinetic energy, enstrophy and mean vorticity
@@ -153,8 +128,9 @@ if __name__ == '__main__':
 	lmax = u0.shape[0]//2 - 1
 	l = np.arange(lmax + 1).reshape(1, -1, 1)		# i.e. [1, lmax+1, 1]
 	lap = - l * (l + 1) / R**2
-	inv_lap = np.where(l > 0, 1 / lap, 0)
 	lap2 = lap**2
+	inv_lap = np.zeros_like(lap)
+	inv_lap[l>0] = 1 / lap[l>0]
 
 	# We obtain the stream function field from the relative vorticity
 	zeta0_spec = grid2spec(zeta0)
