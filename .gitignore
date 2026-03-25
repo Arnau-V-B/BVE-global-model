@@ -1,0 +1,4 @@
+__pycache__/
+*.nc
+output/
+output_spherical/
