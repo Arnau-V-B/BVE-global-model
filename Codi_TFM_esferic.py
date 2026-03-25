@@ -38,8 +38,8 @@ def spec2grid(field_spec, grid='DH'):
 
 
 def compute_vort(u, v, R=6371*10**3):
-	u_spec = pysh.expand.SHExpandDH(u,sampling=2)
-	v_spec = pysh.expand.SHExpandDH(v,sampling=2)
+	u_spec = grid2spec(u)
+	v_spec = grid2spec(v)
 	
 	grad_u = pysh.expand.MakeGradientDH(u_spec,sampling=2,radius=R)
 	grad_v = pysh.expand.MakeGradientDH(v_spec,sampling=2,radius=R)
@@ -53,8 +53,8 @@ def compute_adv(u, v, vort, R=6371*10**3):
 	u_zeta = u * (vort + f)
 	v_zeta = v * (vort + f)
 
-	u_zeta_spec = pysh.expand.SHExpandDH(u_zeta,sampling=2)
-	v_zeta_spec = pysh.expand.SHExpandDH(v_zeta,sampling=2)
+	u_zeta_spec = grid2spec(u_zeta)
+	v_zeta_spec = grid2spec(v_zeta)
 
 	grad_u_zeta = pysh.expand.MakeGradientDH(u_zeta_spec,sampling=2,radius=R)
 	grad_v_zeta = pysh.expand.MakeGradientDH(v_zeta_spec,sampling=2,radius=R)
@@ -96,6 +96,14 @@ if __name__ == '__main__':
 	f = 2 * Omega * np.sin(np.pi * lats_dh / 180)
 	eta = 10 * (3 * nlat_dh / np.pi)**4
 
+	# We build the laplacian operators in the spectral space (with truncation: nlat = 2(lmax+1))
+	lmax = nlat_dh//2 - 1
+	l = np.arange(lmax + 1).reshape(1, -1, 1)		# i.e. [1, lmax+1, 1]
+	lap = - l * (l + 1) / R**2
+	lap2 = lap**2
+	inv_lap = np.zeros_like(lap)
+	inv_lap[l>0] = 1 / lap[l>0]
+
 	# We generate empty lists to keep track of the conserved quantities:
 	# kinetic energy, enstrophy and mean vorticity
 	energies = []
@@ -123,14 +131,6 @@ if __name__ == '__main__':
 
 	# We compute the relative vorticity from the horizontal velovity fields
 	zeta0 = compute_vort(u0_grid, v0_grid)
-
-	# We build the laplacian operators in the spectral space (with truncation: nlat = 2(lmax+1))
-	lmax = u0.shape[0]//2 - 1
-	l = np.arange(lmax + 1).reshape(1, -1, 1)		# i.e. [1, lmax+1, 1]
-	lap = - l * (l + 1) / R**2
-	lap2 = lap**2
-	inv_lap = np.zeros_like(lap)
-	inv_lap[l>0] = 1 / lap[l>0]
 
 	# We obtain the stream function field from the relative vorticity
 	zeta0_spec = grid2spec(zeta0)
