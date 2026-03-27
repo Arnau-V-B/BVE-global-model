@@ -16,7 +16,7 @@ H = 8.5 * 10**3                       # Atmospheric scale height (in m)
 # ===== TIME INTEGRATION =====
 ti = 0                  # Initial time (in s)
 tf = 12 * 3600		# Final time (in s)
-dt = 150                # Time step (in s)
+dt = 250         # Time step (in s)
 
 # RAW filter
 nu = 0.1           # Damping factor   
