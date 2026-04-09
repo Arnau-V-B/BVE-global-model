@@ -5,9 +5,11 @@ import pyshtools as pysh
 import time
 import sys
 import os
+import matplotlib.pyplot as plt
 
 
 def grid2spec(field, grid='DH'):
+
 	if grid == 'DH':
 		field_spec = pysh.expand.SHExpandDH(field,sampling=2)
 
@@ -23,6 +25,7 @@ def grid2spec(field, grid='DH'):
 
 
 def spec2grid(field_spec, grid='DH'):
+
 	if grid == 'DH':
 		field = pysh.expand.MakeGridDH(field_spec,sampling=2)
 
@@ -37,40 +40,69 @@ def spec2grid(field_spec, grid='DH'):
 	return field
 
 
-def compute_vort(u, v, R=6371*10**3):
-	u_spec = grid2spec(u)
-	v_spec = grid2spec(v)
+def lambda_derivative(field_spec):
+
+	lmax = field_spec.shape[1] - 1
+
+	m = np.arange(lmax + 1)
 	
-	grad_u = pysh.expand.MakeGradientDH(u_spec,sampling=2,radius=R)
-	grad_v = pysh.expand.MakeGradientDH(v_spec,sampling=2,radius=R)
+	dlambda_C = m[None, :] * field_spec[1]
+	dlambda_S = - m[None, :] * field_spec[0]
 
-	vort = grad_v[1] - grad_u[0]
-
-	return vort
+	return np.stack((dlambda_C, dlambda_S), axis=0) / R
 
 
-def compute_adv(u, v, vort, R=6371*10**3):
+def theta_derivative(field_spec):
+
+	lmax = field_spec.shape[1] - 1
+	dtheta = np.zeros_like(field_spec)
+
+	m = np.arange(lmax + 1)
+
+	for l in range(1, lmax):
+		m_valid = m[:l+1]
+
+		eps_l = np.sqrt((l**2 - m_valid**2) / (4*l**2 - 1))
+		eps_lp1 = np.sqrt(((l+1)**2 - m_valid**2) / (4*(l+1)**2 - 1))
+
+		dtheta[:, l, :l+1] = ((l+2) * eps_lp1 * field_spec[:, l+1, :l+1]
+							- (l-1) * eps_l * field_spec[:, l-1, :l+1])
+
+	return - dtheta / R
+
+
+def compute_vort(u_spec, v_spec):
+	
+	u_theta_spec = theta_derivative(u_spec)
+	v_lambda_spec = lambda_derivative(v_spec)
+
+	vort_spec = v_lambda_spec - u_theta_spec
+
+	return vort_spec
+
+
+def compute_adv(u, v, vort):
+
 	u_zeta = u * (vort + f)
 	v_zeta = v * (vort + f)
 
 	u_zeta_spec = grid2spec(u_zeta)
 	v_zeta_spec = grid2spec(v_zeta)
 
-	grad_u_zeta = pysh.expand.MakeGradientDH(u_zeta_spec,sampling=2,radius=R)
-	grad_v_zeta = pysh.expand.MakeGradientDH(v_zeta_spec,sampling=2,radius=R)
+	u_zeta_lambda_spec = lambda_derivative(u_zeta_spec)
+	v_zeta_theta_spec = theta_derivative(v_zeta_spec)
 
-	adv = grad_u_zeta[1] + grad_v_zeta[0]
+	adv_spec = - (u_zeta_lambda_spec + v_zeta_theta_spec)
 
-	return - adv
+	return adv_spec
 
 
-def compute_vel(stream_spec, R=6371*10**3):
-	grad_stream = pysh.expand.MakeGradientDH(stream_spec,sampling=2,radius=R)
+def compute_vel(stream_spec):
 
-	u = - grad_stream[0]
-	v = grad_stream[1]
+	u_spec = - theta_derivative(stream_spec)
+	v_spec = lambda_derivative(stream_spec)
 
-	return u, v
+	return u_spec, v_spec
 
 
 if __name__ == '__main__':
@@ -85,16 +117,18 @@ if __name__ == '__main__':
 	print("Obtaining model parameters ...\n")
 
 	from config import *
+	global f, derfact
 	
 	# We generate the Driscoll-Healy spherical grid (i.e. equally spaced Nx2N)
 	nlat_dh = len(lat) - 1
-	lat_dh = np.linspace(-90, 90, nlat_dh)
+	lat_dh = np.linspace(-90 + 25*90/nlat_dh, 90 - 25*90/nlat_dh, nlat_dh)
 	lon_dh = np.linspace(0, 360, 2*nlat_dh, endpoint=False)
 	lons_dh, lats_dh = np.meshgrid(lon_dh, lat_dh)
 
-	# We define the Coriolis parameter field and the hyperdifussion coefficient
-	f = 2 * Omega * np.sin(np.pi * lats_dh / 180)
-	eta = 10 * (3 * nlat_dh / np.pi)**4
+	# We precompute some useful parameters
+	f = 2 * Omega * np.sin(np.pi * lats_dh / 180)	# Coriolis parameter
+	eta = 10 * (3 * nlat_dh / np.pi)**4				# Hyperdiffusion coefficient
+	derfact = 1 / np.cos(np.pi * lats_dh / 180)		# Spherical scale factor
 
 	# We build the laplacian operators in the spectral space (with truncation: nlat = 2(lmax+1))
 	lmax = nlat_dh//2 - 1
@@ -129,13 +163,57 @@ if __name__ == '__main__':
 	u0_grid = interp_u((lats_dh, lons_dh))
 	v0_grid = interp_v((lats_dh, lons_dh))
 
-	# We compute the relative vorticity from the horizontal velovity fields
-	zeta0 = compute_vort(u0_grid, v0_grid)
+	# We convert the fields to spectral space
+	u0_spec = grid2spec(u0_grid)
+	v0_spec = grid2spec(v0_grid)
+
+	# We compute the relative vorticity from the horizontal velocity fields
+	zeta0_spec = compute_vort(u0_spec, v0_spec)
+	zeta0 = spec2grid(zeta0_spec) * derfact
 
 	# We obtain the stream function field from the relative vorticity
-	zeta0_spec = grid2spec(zeta0)
 	psi0_spec = inv_lap * zeta0_spec
 	psi0 = spec2grid(psi0_spec)
+
+
+
+	# os.makedirs('temp/', exist_ok=True)
+
+	# fig, ax = plt.subplots()
+	# im = ax.pcolormesh(lons_dh,lats_dh,zeta0)
+	# cbar = fig.colorbar(im, ax=ax)
+	# cbar.set_label('Vorticity (1/s)')
+	# ax.set_title(f'Vorticity field at t = {0/3600:.2f}h')
+	# fig.tight_layout()
+
+	# fig_name = f"vorticity_field_{output_name}_t{0/3600:.2f}h.png"
+	# fig.savefig('temp/' + fig_name)
+	# plt.close(fig)
+
+	# fig, ax = plt.subplots()
+	# im = ax.pcolormesh(lons_dh,lats_dh,psi0)
+	# cbar = fig.colorbar(im, ax=ax)
+	# cbar.set_label('psi (m^2/s)')
+	# ax.set_title(f'Stream function field at t = {0/3600:.2f}h')
+	# fig.tight_layout()
+
+	# fig_name = f"psi_field_{output_name}_t{0/3600:.2f}h.png"
+	# fig.savefig('temp/' + fig_name)
+	# plt.close(fig)
+
+	# fig, ax = plt.subplots()
+	# im = ax.pcolormesh(lons_dh,lats_dh,u0_grid)
+	# cbar = fig.colorbar(im, ax=ax)
+	# cbar.set_label('Velocity (m/s)')
+	# ax.set_title(f'U field at t = {0/3600:.2f}h')
+	# fig.tight_layout()
+
+	# fig_name = f"u_field_{output_name}_t{0/3600:.2f}h.png"
+	# fig.savefig('temp/' + fig_name)
+	# plt.close(fig)
+
+
+
 
 	# We compute all the conserved values
 	energy = np.mean(0.5 * (u0_grid**2 + v0_grid**2))
@@ -158,9 +236,8 @@ if __name__ == '__main__':
 	# We start the time integration
 	print("Starting time integration ...")
 
-	# We compute the advection term and bring it to spectral space
-	adv0 = compute_adv(u0_grid, v0_grid, zeta0)
-	adv0_spec = grid2spec(adv0)
+	# We compute the advection term (spec --> grid --> spec)
+	adv0_spec = compute_adv(u0_grid, v0_grid, zeta0)
 
 	# We compute the hyperdiffusion term
 	hyp0_spec = eta * lap2 * zeta0_spec
@@ -172,13 +249,55 @@ if __name__ == '__main__':
 	zeta_spec = zeta0_spec
 	zetaold_spec = zeta0_spec
 	zetanew_spec = zeta_spec + dt * rhs0_spec
-	zetanew = spec2grid(zetanew_spec)
+	zetanew = spec2grid(zetanew_spec) * derfact
 
 	# We can also extract the new stream function field
 	psi_spec = inv_lap * zetanew_spec
 	
 	# And extract the new velocity fields
-	u, v = compute_vel(psi_spec)
+	u_spec, v_spec = compute_vel(psi_spec)
+	u = spec2grid(u_spec) * derfact
+	v = spec2grid(v_spec) * derfact
+
+
+
+
+	# fig, ax = plt.subplots()
+	# im = ax.pcolormesh(lons_dh,lats_dh,zetanew)
+	# cbar = fig.colorbar(im, ax=ax)
+	# cbar.set_label('Vorticity (1/s)')
+	# ax.set_title(f'Vorticity field at t = {dt/3600:.2f}h')
+	# fig.tight_layout()
+
+	# fig_name = f"vorticity_field_{output_name}_t{dt/3600:.2f}h.png"
+	# fig.savefig('temp/' + fig_name)
+	# plt.close(fig)
+
+	# fig, ax = plt.subplots()
+	# psi = spec2grid(psi_spec)
+	# im = ax.pcolormesh(lons_dh,lats_dh,psi)
+	# cbar = fig.colorbar(im, ax=ax)
+	# cbar.set_label('psi (m^2/s)')
+	# ax.set_title(f'Stream function field at t = {dt/3600:.2f}h')
+	# fig.tight_layout()
+
+	# fig_name = f"psi_field_{output_name}_t{dt/3600:.2f}h.png"
+	# fig.savefig('temp/' + fig_name)
+	# plt.close(fig)
+
+	# fig, ax = plt.subplots()
+	# im = ax.pcolormesh(lons_dh,lats_dh,u)
+	# cbar = fig.colorbar(im, ax=ax)
+	# cbar.set_label('Velocity (m/s)')
+	# ax.set_title(f'U field at t = {dt/3600:.2f}h')
+	# fig.tight_layout()
+
+	# fig_name = f"u_field_{output_name}_t{dt/3600:.2f}h.png"
+	# fig.savefig('temp/' + fig_name)
+	# plt.close(fig)
+
+
+
 
 	# Again, we comptute the conserved values
 	energy = np.mean(0.5 * (u**2 + v**2))
@@ -205,8 +324,7 @@ if __name__ == '__main__':
 		zeta = zetanew
 		
 		# We compute the advection and hyperdiffusion terms
-		adv = compute_adv(u, v, zeta)
-		adv_spec = grid2spec(adv)
+		adv_spec = compute_adv(u, v, zeta)
 		hyp_spec = eta * lap2 * zeta_spec
 
 		# And get the RHS of the BVE
@@ -224,13 +342,15 @@ if __name__ == '__main__':
 		# damping it with nu and displacing zeta forwards and zetanew backwards with alpha
 		zeta_spec += nu*alpha/2.0 * delta
 		zetanew_spec += - nu*(1-alpha)/2.0 * delta
-		zetanew = spec2grid(zetanew_spec)
+		zetanew = spec2grid(zetanew_spec) * derfact
 
 		# Now we can extract the new stream function field
 		psi_spec = inv_lap * zetanew_spec
 
 		# And compute the new velocity fields
-		u, v = compute_vel(psi_spec)
+		u_spec, v_spec = compute_vel(psi_spec)
+		u = spec2grid(u_spec) * derfact
+		v = spec2grid(v_spec) * derfact
 
 		# Finally, we comptute the conserved values
 		energy = np.mean(0.5 * (u**2 + v**2))
@@ -241,6 +361,54 @@ if __name__ == '__main__':
 		enstrophies.append(enstrophy)
 		mean_vorticities.append(zetamean)
 
+
+
+
+		# fig, ax = plt.subplots()
+		# im = ax.pcolormesh(lons_dh,lats_dh,zetanew)
+		# cbar = fig.colorbar(im, ax=ax)
+		# cbar.set_label('Vorticity (1/s)')
+		# ax.set_title(f'Vorticity field at t = {t/3600:.2f}h')
+		# fig.tight_layout()
+
+		# fig_name = f"vorticity_field_{output_name}_t{t/3600:.2f}h.png"
+		# fig.savefig('temp/' + fig_name)
+		# plt.close(fig)
+
+		# fig, ax = plt.subplots()
+		# psi = spec2grid(psi_spec)
+		# im = ax.pcolormesh(lons_dh,lats_dh,psi)
+		# cbar = fig.colorbar(im, ax=ax)
+		# cbar.set_label('psi (m^2/s)')
+		# ax.set_title(f'Stream function field at t = {t/3600:.2f}h')
+		# fig.tight_layout()
+
+		# fig_name = f"psi_field_{output_name}_t{t/3600:.2f}h.png"
+		# fig.savefig('temp/' + fig_name)
+		# plt.close(fig)
+
+		# fig, ax = plt.subplots()
+		# im = ax.pcolormesh(lons_dh,lats_dh,u)
+		# cbar = fig.colorbar(im, ax=ax)
+		# cbar.set_label('Velocity (m/s)')
+		# ax.set_title(f'U field at t = {t/3600:.2f}h')
+		# fig.tight_layout()
+
+		# fig_name = f"u_field_{output_name}_t{t/3600:.2f}h.png"
+		# fig.savefig('temp/' + fig_name)
+		# plt.close(fig)
+
+		# if np.isinf(zetanew).any():
+		# 	print("Infinity detected")
+		# 	break
+		# elif np.isnan(zetanew).any():
+		# 	print("NaN detected")
+		# 	break
+
+
+
+
+
 		# Every time we get to the save interval, we save a snapshot of the psi and zeta fields
 		if t >= next_save_time:
 			times.append(t)
@@ -249,12 +417,18 @@ if __name__ == '__main__':
 			vorticities.append(zetanew.copy())
 			next_save_time += save_time
 
+
 	# In the end, we save the used config file in '.txt' format and the simulation data into
 	# NetCDF4 Datasets
 	print('')
 	print("Saving simulation results...")
 
-	# We start by creating the directory where the data will be saved
+	# We first copy the config file used
+	with (open("config.py", 'r') as file, 
+		open(output_dir + output_name + f"/params_{output_name}.txt", 'w') as file_copy):
+		file_copy.write(file.read())
+
+	# Then, we start by creating the directory where the data will be saved
 	data_dir = output_dir + output_name + "/data/"
 	os.makedirs(data_dir, exist_ok=True)
 
@@ -420,10 +594,10 @@ if __name__ == '__main__':
 	# the range of values where most of the data is
 	max_abs = max(abs(p1), abs(p99))
 	levels = np.concatenate([
-        	np.linspace(-max_abs, -max_abs/2, 5),
-        	np.linspace(-max_abs/2, max_abs/2, 11),
-        	np.linspace(max_abs/2, max_abs, 5)
-    		])
+			np.linspace(-max_abs, -max_abs/2, 5),
+			np.linspace(-max_abs/2, max_abs/2, 11),
+			np.linspace(max_abs/2, max_abs, 5)
+			])
 
 	levels = np.unique(levels)
 	norm = BoundaryNorm(levels, 256)
