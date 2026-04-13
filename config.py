@@ -15,8 +15,9 @@ H = 8.5 * 10**3                       # Atmospheric scale height (in m)
 
 # ===== TIME INTEGRATION =====
 ti = 0                  # Initial time (in s)
-tf = 12 * 3600		# Final time (in s)
-dt = 250         # Time step (in s)
+tf = 12 * 3600		    # Final time (in s)
+dt = 150                # Time step (in s)
+tau_d = 1.5 * 3600      # Hyperdiffusion time scale (in s)
 
 # RAW filter
 nu = 0.1           # Damping factor   
@@ -24,7 +25,7 @@ alpha = 0.5        # Displacement factor
 
 
 # ===== OUTPUT =====
-output_name = "exp_1"       # Name of the output folder
+output_name = "exp_4"       # Name of the output folder
 save_time = 3 * 3600        # Time interval between saves (in s) 
 
 

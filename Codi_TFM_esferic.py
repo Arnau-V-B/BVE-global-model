@@ -132,18 +132,23 @@ if __name__ == '__main__':
 
 	# We precompute some useful parameters
 	f = 2 * Omega * np.sin(np.pi * lats_dh / 180)	# Coriolis parameter
-	eta = 10 * (3 * nlat_dh / np.pi)**4				# Hyperdiffusion coefficient
 	derfact = 1 / np.cos(np.pi * lats_dh / 180)		# Spherical scale factor
-	derfact[0] = derfact[1]
-	derfact[-1] = derfact[-2]
+	derfact[0] = derfact[1]			# Avoid division by zero
+	derfact[-1] = derfact[-2]		# Avoid division by zero
 
 	# We build the laplacian operators in the spectral space (with truncation: nlat = 2(lmax+1))
 	lmax = nlat_dh//2 - 1
 	l = np.arange(lmax + 1).reshape(1, -1, 1)		# i.e. [1, lmax+1, 1]
-	lap = - l * (l + 1) / R**2
-	lap2 = lap**2
-	inv_lap = np.zeros_like(lap)
-	inv_lap[l>0] = 1 / lap[l>0]
+	lap = - l * (l + 1) / R**2			# Normal laplacian
+	lap2 = lap**2						# Squared laplacian (for hyperdiffiusion n=2)
+	inv_lap = np.zeros_like(lap)		# Inverse laplacian
+	inv_lap[l>0] = 1 / lap[l>0]		# Avoid division by zero
+
+	# We compute the hyperdiffusion coefficient (scaled accordingly)
+	kmax = (lmax * (lmax + 1)) / R**2		# Maximum wave mode
+	eta = 1 / (tau_d * kmax**2)
+	hyp_denom1 = 1 / (1 + dt * eta * lap2)			# Implicit operator for Euler scheme
+	hyp_denom2 = 1 / (1 + 2 * dt * eta * lap2)		# Implicit operator for Leapfrog scheme
 
 	# We generate empty lists to keep track of the conserved quantities:
 	# kinetic energy, enstrophy and mean vorticity
@@ -246,16 +251,11 @@ if __name__ == '__main__':
 	# We compute the advection term (spec --> grid --> spec)
 	adv0_spec = compute_adv(u0_grid, v0_grid, zeta0)
 
-	# We compute the hyperdiffusion term
-	hyp0_spec = eta * lap2 * zeta0_spec
-
-	# Now, we can get the RHS of the BVE in the spectral space
-	rhs0_spec = adv0_spec - hyp0_spec
-
 	# And perform a forward Euler step in time for the first integration
 	zeta_spec = zeta0_spec
 	zetaold_spec = zeta0_spec
-	zetanew_spec = zeta_spec + dt * rhs0_spec
+	# We apply the hyperdiffusion implicitly (i.e. (1+dt*hyp)zeta_i+1 = rhs_i))
+	zetanew_spec = (zeta_spec + dt * adv0_spec) * hyp_denom1
 	zetanew = spec2grid(zetanew_spec) * derfact
 
 	# We can also extract the new stream function field
@@ -330,15 +330,12 @@ if __name__ == '__main__':
 		zeta_spec = zetanew_spec
 		zeta = zetanew
 		
-		# We compute the advection and hyperdiffusion terms
+		# We compute the advection term
 		adv_spec = compute_adv(u, v, zeta)
-		hyp_spec = eta * lap2 * zeta_spec
-
-		# And get the RHS of the BVE
-		rhs_spec = adv_spec - hyp_spec
 
 		# Now, a Leapfrog scheme is used to perform the time integration
-		zetanew_spec = zetaold_spec + 2 * dt * rhs_spec
+		# Again, we apply the hyperdiffusion implicitly (i.e. (1+2dt*hyp)zeta_i+1 = rhs_i))
+		zetanew_spec = (zetaold_spec + 2 * dt * adv_spec) * hyp_denom2
 
 		# After the time step, we apply a Robert-Asselin-Williams filter to reduce the
 		# computational mode amplitude while still mantaining nearly the second order precision
@@ -405,12 +402,12 @@ if __name__ == '__main__':
 		# fig.savefig('temp/' + fig_name)
 		# plt.close(fig)
 
-		# if np.isinf(zetanew).any():
-		# 	print("Infinity detected")
-		# 	break
-		# elif np.isnan(zetanew).any():
-		# 	print("NaN detected")
-		# 	break
+		if np.isinf(zetanew).any():
+			print("Infinity detected")
+			break
+		elif np.isnan(zetanew).any():
+			print("NaN detected")
+			break
 
 
 
