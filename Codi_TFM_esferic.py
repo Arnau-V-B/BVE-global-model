@@ -59,16 +59,21 @@ def theta_derivative(field_spec):
 
 	m = np.arange(lmax + 1)
 
-	for l in range(1, lmax):
+	for l in range(lmax + 1):
 		m_valid = m[:l+1]
 
 		eps_l = np.sqrt((l**2 - m_valid**2) / (4*l**2 - 1))
 		eps_lp1 = np.sqrt(((l+1)**2 - m_valid**2) / (4*(l+1)**2 - 1))
 
-		dtheta[:, l, :l+1] = ((l+2) * eps_lp1 * field_spec[:, l+1, :l+1]
-							- (l-1) * eps_l * field_spec[:, l-1, :l+1])
+		if l == 0:
+			dtheta[:, l, :l+1] = (l+2) * eps_lp1 * field_spec[:, l+1, :l+1]
+		elif l == lmax:
+			dtheta[:, l, :l+1] = - (l-1) * eps_l * field_spec[:, l-1, :l+1]
+		else:
+			dtheta[:, l, :l+1] = ((l+2) * eps_lp1 * field_spec[:, l+1, :l+1]
+								- (l-1) * eps_l * field_spec[:, l-1, :l+1])
 
-	return - dtheta / R
+	return dtheta / R
 
 
 def compute_vort(u_spec, v_spec):
@@ -121,7 +126,7 @@ if __name__ == '__main__':
 	
 	# We generate the Driscoll-Healy spherical grid (i.e. equally spaced Nx2N)
 	nlat_dh = len(lat) - 1
-	lat_dh = np.linspace(-90 + 25*90/nlat_dh, 90 - 25*90/nlat_dh, nlat_dh)
+	lat_dh = np.linspace(90 - 0*90/nlat_dh, -90 + 0*90/nlat_dh, nlat_dh)
 	lon_dh = np.linspace(0, 360, 2*nlat_dh, endpoint=False)
 	lons_dh, lats_dh = np.meshgrid(lon_dh, lat_dh)
 
@@ -129,6 +134,8 @@ if __name__ == '__main__':
 	f = 2 * Omega * np.sin(np.pi * lats_dh / 180)	# Coriolis parameter
 	eta = 10 * (3 * nlat_dh / np.pi)**4				# Hyperdiffusion coefficient
 	derfact = 1 / np.cos(np.pi * lats_dh / 180)		# Spherical scale factor
+	derfact[0] = derfact[1]
+	derfact[-1] = derfact[-2]
 
 	# We build the laplacian operators in the spectral space (with truncation: nlat = 2(lmax+1))
 	lmax = nlat_dh//2 - 1
