@@ -473,13 +473,13 @@ if __name__ == '__main__':
 	# And then the vorticity and stream function snapshots
 	evo = xr.Dataset(
 		{
-			'streamfunction': (['time', 'y', 'x'], np.stack(streamfunctions)),
-			'vorticity': (['time', 'y', 'x'], np.stack(vorticities))
+			'streamfunction': (['time', 'lat', 'lon'], np.stack(streamfunctions)),
+			'vorticity': (['time', 'lat', 'lon'], np.stack(vorticities))
 		},
 		coords={
 			'time': times,
-			'lat': (['y', 'x'], lats_dh),
-			'lon': (['y', 'x'], lons_dh)
+			'lat': lat_dh,
+			'lon': lon_dh
 		}
 	)
 
@@ -579,8 +579,9 @@ if __name__ == '__main__':
 
 	streamfunctions = evo['streamfunction']
 	vorticities = evo['vorticity']
-	xs = evo['lon']
-	ys = evo['lat']
+	lon = evo['lon']
+	lat = evo['lat']
+	lons, lats = np.meshgrid(lon, lat)
 	times = [int(time/3600) for time in evo['time'].values]
 
 	# First we plot the vorticity field evolution
@@ -612,13 +613,13 @@ if __name__ == '__main__':
 	for i in range(len(times)):
 
 		fig, ax = plt.subplots(figsize=(8,4))
-		mesh = ax.contourf(xs, ys, vorticities[i], cmap='coolwarm', 
+		mesh = ax.contourf(lons, lats, vorticities[i], cmap='coolwarm', 
 					 		norm=norm, levels=levels, extend='both')
 		cbar = fig.colorbar(mesh, ax=ax, extend='both', label='Vorticity (1/s)')
 		cbar.set_ticks(levels)
 		ax.set_title(f'Vorticity field at t = {times[i]}h')
-		ax.set_xlabel('x (m)')
-		ax.set_ylabel('y (m)')
+		ax.set_xlabel(r'$\lambda$ (º)')
+		ax.set_ylabel(r'$\phi$ (º)')
 		fig.tight_layout()
 
 		fig_name = f"vorticity_field_{output_name}_t{times[i]}h.png"
@@ -636,11 +637,11 @@ if __name__ == '__main__':
 	for i in range(len(times)):
 
 		fig, ax = plt.subplots(figsize=(8,4))
-		mesh = ax.contour(xs,ys,streamfunctions[i],cmap='coolwarm')
+		mesh = ax.contour(lons,lats,streamfunctions[i],cmap='coolwarm')
 		cbar = fig.colorbar(mesh, ax=ax, label=r'Stream function ($\mathrm{m^2/s}$)')
 		ax.set_title(f'Stream function field at t = {times[i]}h')
-		ax.set_xlabel('x (m)')
-		ax.set_ylabel('y (m)')
+		ax.set_xlabel(r'$\lambda$ (º)')
+		ax.set_ylabel(r'$\phi$ (º)')
 		fig.tight_layout()
 
 		fig_name = f"stream_function_field_{output_name}_t{times[i]}h.png"
