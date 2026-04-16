@@ -167,32 +167,31 @@ if __name__ == '__main__':
 	# Now, we generate the initial velocity fields
 	print("Generating initial fields ...\n")
 
-	# We configure the interpolators from regular grid to DH grid
-	interp_u = RegularGridInterpolator((lat, lon), u0, bounds_error=False, fill_value=None)
-	interp_v = RegularGridInterpolator((lat, lon), v0, bounds_error=False, fill_value=None)
+	# We configure the interpolator from regular grid to DH grid
+	interp_z = RegularGridInterpolator((lat, lon), zeta0, bounds_error=False, fill_value=None)
 
-	# We interpolate the velocity components to the DH grid
-	u0_grid = interp_u((lats_dh, lons_dh))
-	v0_grid = interp_v((lats_dh, lons_dh))
+	# We interpolate the original vorticity field to the DH grid
+	zeta0_grid = interp_z((lats_dh, lons_dh))
 
-	# We convert the fields to spectral space
-	u0_spec = grid2spec(u0_grid)
-	v0_spec = grid2spec(v0_grid)
-
-	# We compute the relative vorticity from the horizontal velocity fields
-	zeta0_spec = compute_vort(u0_spec, v0_spec)
-	zeta0 = spec2grid(zeta0_spec) * derfact
+	# We convert it to spectral space
+	zeta0_spec = grid2spec(zeta0_grid)
 
 	# We obtain the stream function field from the relative vorticity
 	psi0_spec = inv_lap * zeta0_spec
 	psi0 = spec2grid(psi0_spec)
+
+	# And we extract the horizontal velocity fields from the stream function
+	u0_spec, v0_spec = compute_vel(psi0_spec)
+	u0 = spec2grid(u0_spec) * derfact
+	v0 = spec2grid(v0_spec) * derfact
+
 
 
 
 	# os.makedirs('temp/', exist_ok=True)
 
 	# fig, ax = plt.subplots()
-	# im = ax.pcolormesh(lons_dh,lats_dh,zeta0)
+	# im = ax.pcolormesh(lons_dh,lats_dh,zeta0_grid)
 	# cbar = fig.colorbar(im, ax=ax)
 	# cbar.set_label('Vorticity (1/s)')
 	# ax.set_title(f'Vorticity field at t = {0/3600:.2f}h')
@@ -214,7 +213,7 @@ if __name__ == '__main__':
 	# plt.close(fig)
 
 	# fig, ax = plt.subplots()
-	# im = ax.pcolormesh(lons_dh,lats_dh,u0_grid)
+	# im = ax.pcolormesh(lons_dh,lats_dh,u0)
 	# cbar = fig.colorbar(im, ax=ax)
 	# cbar.set_label('Velocity (m/s)')
 	# ax.set_title(f'U field at t = {0/3600:.2f}h')
@@ -228,9 +227,9 @@ if __name__ == '__main__':
 
 
 	# We compute all the conserved values
-	energy = np.mean(0.5 * (u0_grid**2 + v0_grid**2))
-	enstrophy = np.sum((zeta0 + f)**2 / 2.0)
-	zetamean = np.mean(zeta0)
+	energy = np.mean(0.5 * (u0**2 + v0**2))
+	enstrophy = np.sum((zeta0_grid + f)**2 / 2.0)
+	zetamean = np.mean(zeta0_grid)
 	# And save them in the lists
 	energies.append(energy)
 	enstrophies.append(enstrophy)
@@ -239,7 +238,7 @@ if __name__ == '__main__':
 	# We also save the initial fields
 	times.append(ti)
 	streamfunctions.append(psi0.copy())
-	vorticities.append(zeta0.copy())
+	vorticities.append(zeta0_grid.copy())
 
 	# Finally we set the next save time
 	next_save_time = save_time
@@ -249,14 +248,15 @@ if __name__ == '__main__':
 	print("Starting time integration ...")
 
 	# We compute the advection term (spec --> grid --> spec)
-	adv0_spec = compute_adv(u0_grid, v0_grid, zeta0)
+	adv0_spec = compute_adv(u0, v0, zeta0_grid)
 
 	# And perform a forward Euler step in time for the first integration
 	zeta_spec = zeta0_spec
 	zetaold_spec = zeta0_spec
 	# We apply the hyperdiffusion implicitly (i.e. (1+dt*hyp)zeta_i+1 = rhs_i))
 	zetanew_spec = (zeta_spec + dt * adv0_spec) * hyp_denom1
-	zetanew = spec2grid(zetanew_spec) * derfact
+	# zetanew = spec2grid(zetanew_spec) * derfact
+	zetanew = spec2grid(zetanew_spec)
 
 	# We can also extract the new stream function field
 	psi_spec = inv_lap * zetanew_spec
@@ -346,7 +346,8 @@ if __name__ == '__main__':
 		# damping it with nu and displacing zeta forwards and zetanew backwards with alpha
 		zeta_spec += nu*alpha/2.0 * delta
 		zetanew_spec += - nu*(1-alpha)/2.0 * delta
-		zetanew = spec2grid(zetanew_spec) * derfact
+		# zetanew = spec2grid(zetanew_spec) * derfact
+		zetanew = spec2grid(zetanew_spec)
 
 		# Now we can extract the new stream function field
 		psi_spec = inv_lap * zetanew_spec

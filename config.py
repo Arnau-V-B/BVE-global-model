@@ -15,7 +15,7 @@ H = 8.5 * 10**3                       # Atmospheric scale height (in m)
 
 # ===== TIME INTEGRATION =====
 ti = 0                  # Initial time (in s)
-tf = 12 * 3600		    # Final time (in s)
+tf = 24 * 3600		    # Final time (in s)
 dt = 150                # Time step (in s)
 tau_d = 1.5 * 3600      # Hyperdiffusion time scale (in s)
 
@@ -25,23 +25,22 @@ alpha = 0.5        # Displacement factor
 
 
 # ===== OUTPUT =====
-output_name = "exp_4"       # Name of the output folder
+output_name = "exp_7"       # Name of the output folder
 save_time = 3 * 3600        # Time interval between saves (in s) 
 
 
 # ===== INITIAL CONDITIONS =====
 
-# Initial horizontal velocity fields
-dataset_name = "uv_19-02-2026_0000_glob.nc"     # Name of the dataset file
+# Initial relative vorticity field
+dataset_name = "vort_19-02-2026_0000_glob.nc"     # Name of the dataset file
 
-# We open and read the horizontal velocity dataset
+# We open and read the relative vorticity dataset
 ds = xr.open_dataset(dataset_name, engine='netcdf4')
 time_value = ds['valid_time'].values[0]
 press_lvl = ds['pressure_level'].values[0]
 
-# We get the horizontal velocity components
-u0 = ds['u'].sel(valid_time=time_value, pressure_level=press_lvl).values
-v0 = ds['v'].sel(valid_time=time_value, pressure_level=press_lvl).values
+# We get the initial relative vortiticy field
+zeta0 = ds['vo'].sel(valid_time=time_value, pressure_level=press_lvl).values
 
 # We get the latitude and longitude coordinates (nlat = N+1, nlon = 2N)
 lat = ds['latitude'].values
