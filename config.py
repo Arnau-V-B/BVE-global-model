@@ -36,11 +36,11 @@ dataset_name = "vort_19-02-2026_0000_glob.nc"     # Name of the dataset file
 
 # We open and read the relative vorticity dataset
 ds = xr.open_dataset(dataset_name, engine='netcdf4')
-time_value = ds['valid_time'].values[0]
+start_date = ds['valid_time'].values[0]
 press_lvl = ds['pressure_level'].values[0]
 
 # We get the initial relative vortiticy field
-zeta0 = ds['vo'].sel(valid_time=time_value, pressure_level=press_lvl).values
+zeta0 = ds['vo'].sel(valid_time=start_date, pressure_level=press_lvl).values
 
 # We get the latitude and longitude coordinates (nlat = N+1, nlon = 2N)
 lat = ds['latitude'].values

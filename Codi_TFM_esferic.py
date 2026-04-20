@@ -472,44 +472,72 @@ if __name__ == '__main__':
 	cons.to_netcdf(data_dir + cons_file)
 
 	# And then the vorticity and stream function snapshots
+
+	# First, we generate the standard time, latitude and longitude coordinates
+	time_steps = np.array(times, dtype='timedelta64[s]')
+	date_times = start_date + time_steps
+
+	time_coord = xr.DataArray(
+		date_times,
+		dims='time',
+		attrs={
+			'long_name': 'time',
+			'standard_name': 'time'
+		}
+	)
+	lat_coord = xr.DataArray(
+		lat_dh,
+		dims='lat',
+		attrs={
+			'units': 'degrees_north',
+			'long_name': 'latitude',
+			'standard_name': 'latitude',
+			'stored_direction': 'decreasing'
+		}
+	)
+	lon_coord = xr.DataArray(
+		lon_dh,
+		dims='lon',
+		attrs={
+			'units': 'degrees_east',
+			'long_name': 'longitude',
+			'standard_name': 'longitude'
+		}
+	)
+
+	# Then we create the dataset and save the fields with their corresponding attributes
 	evo = xr.Dataset(
 		{
 			'streamfunction': (['time', 'lat', 'lon'], np.stack(streamfunctions)),
 			'vorticity': (['time', 'lat', 'lon'], np.stack(vorticities))
 		},
 		coords={
-			'time': times,
-			'lat': lat_dh,
-			'lon': lon_dh
+			'time': time_coord,
+			'lat': lat_coord,
+			'lon': lon_coord
 		}
 	)
 
-	evo.attrs['description'] = 'Evolution of the vorticity and stream function fields during the simulation'
+	evo.attrs = {
+		'description': 'Evolution of 500 hPa vorticity and stream function fields through BVE simulation',
+		'Conventions': 'DF-1.7',
+		'history': f'Created on {time.ctime()}',
+		'source': 'Global barotropic vorticity equation simulation at 500 hPa in Python'
+	}
 	evo['streamfunction'].attrs = {
-		'description': '2D stream function field',
-		'units': 'm^2/s',
-		'long_name': 'Stream function'
+		'description': '2D simulated stream function field',
+		'units': 'm**2 s**-1',
+		'long_name': 'Stream function',
+		'standard_name': 'streamfunction',
+		'gridType': 'Driscoll-Healy (n*2n)'
 	}
 	evo['vorticity'].attrs = {
-		'description': '2D vorticity field',
-		'units': '1/s',
-		'long_name': 'Vorticity',
-		'positive': 'Cyclonic'
-	}
-	evo['lon'].attrs = {
-		'description': 'Longitude coordinate',
-		'units': 'm',
-		'long_name': 'Longitude'
-	}
-	evo['lat'].attrs = {
-		'description': 'Latitude coordinate',
-		'units': 'm',
-		'long_name': 'Latitude'
-	}
-	evo['time'].attrs = {
-		'description': 'Time coordinate',
-		'units': 's',
-		'long_name': 'Time'
+		'description': '2D simulated vorticity field',
+		'units': 's**-1',
+		'long_name': 'Vorticity (relative)',
+		'standard_name': 'vorticity',
+		'positive': 'Cyclonic',
+		'gridType': 'Driscoll-Healy (n*2n)'
 	}
 
 	evo_file = f"fields_evolution_{output_name}.nc"
@@ -583,7 +611,9 @@ if __name__ == '__main__':
 	lon = evo['lon']
 	lat = evo['lat']
 	lons, lats = np.meshgrid(lon, lat)
-	times = [int(time/3600) for time in evo['time'].values]
+	time_step = (evo['time'].values[1].astype('datetime64[s]') - 
+			evo['time'].values[0].astype('datetime64[s]')).astype(int)
+	times = [i*time_step / 3600 for i in range(len(evo['time'].values))]
 
 	# First we plot the vorticity field evolution
 
