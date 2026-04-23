@@ -9,6 +9,25 @@ import matplotlib.pyplot as plt
 
 
 def grid2spec(field, grid):
+	"""
+	This function takes a 2D gridded field and transforms it into a set of real spherical harmonics
+	coefficients until a maximum order of triangular truncation lmax.
+
+	It accepts both Discroll-Healy (DH) (equally sampled) and Gauss-Legendre quadrature (GLQ)
+	(gaussian latitudes) grids.
+
+	PARAMETERS:
+	(input) -->
+		field : 2D array (nlat, nlon) of grid field
+		grid : type of grid quadrature: DH or GLQ
+	(internal) -->
+		lmax : maximum wavenumber for spectral triangular truncation
+		glq_weights : weights for each of the roots of Legendre polynomial of roder lmax
+		glq_nodes : roots of Legendre polynomial of order lmax
+	(output) -->
+		field_spec : 3D array (2, lmax+1, lmax+1) of real spherical harmonics coefficients
+					[0,:,:] for cosine coefficients and [1,:,:] for sine coefficients
+	"""
 
 	if grid == 'DH':
 		field_spec = pysh.expand.SHExpandDH(field, sampling=2, lmax_calc=lmax)
@@ -20,6 +39,24 @@ def grid2spec(field, grid):
 
 
 def spec2grid(field_spec, grid):
+	"""
+	This function takes a 3D array of real spherical harmonics with triangular truncation lmax
+	and shape (2,lmax+1,lmax+1) and transforms it into a 2D gridded field with sampling sampl.
+
+	It accepts both Discroll-Healy (DH) (equally sampled) and Gauss-Legendre quadrature (GLQ)
+	(gaussian latitudes) grids.
+
+	PARAMETERS:
+	(input) -->
+		field_spec : 3D array (2, lmax+1, lmax+1) of real spherical harmonics coefficients
+					[0,:,:] for cosine coefficients and [1,:,:] for sine coefficients
+		grid : type of grid quadrature: DH or GLQ
+	(internal) -->
+		sampl : sampling of the resulting gridded field
+		glq_nodes : roots of Legendre polynomial of order lmax
+	(output) -->
+		field : 2D array (nlat, nlon) of the gridded field
+	"""
 
 	if grid == 'DH':
 		field = pysh.expand.MakeGridDH(field_spec, sampling=2, lmax=sampl)
@@ -31,30 +68,80 @@ def spec2grid(field_spec, grid):
 
 
 def lambda_derivative(field_spec):
+	"""
+	This function computes the derivative in longitude for a given field in the real spherical
+	harmonics spectral space. The spectral field coefficients of triangular truncation lmax need to be
+	shaped as (2,lmax+1,lmax+1).
 
+	The following recursion relation between spectral coefficients is used to compute the derivative:
+	-->	d/dlambda f_lm = i * m * f_lm
+		Cosine coeffs (C): d/dlambda C_lm = m * S_lm
+		Sine coeffs (S): d/dlambda S_lm = - m * C_lm
+
+	PARAMETERS:
+	(input) -->
+		field_spec : 3D array (2, lmax+1, lmax+1) of real spherical harmonics coefficients
+					[0,:,:] for cosine coefficients and [1,:,:] for sine coefficients
+	(internal) -->
+		R : Earth radius (for correct scaling)
+	(output) -->
+		dlambda : 3D array (2, lmax+1, lmax+1) with the coefficients of the derivative in longitude
+	"""
+
+	# We obtain the spectral truncation of the coefficients
 	lmax = field_spec.shape[1] - 1
 
+	# We generate a vector of m's from 0 to lmax
 	m = np.arange(lmax + 1)
 	
+	# We compute the derivative with the recursion relation (applied to all orders l and m)
 	dlambda_C = m[None, :] * field_spec[1]
 	dlambda_S = - m[None, :] * field_spec[0]
 
+	# Finally we combine both cosine and sine coefficients into a (2,lmax+1,lmax+1) array
+	# And divide by the Earth radius to get the correct units
 	return np.stack((dlambda_C, dlambda_S), axis=0) / R
 
 
 def theta_derivative(field_spec):
+	"""
+	This function computes the derivative in latitude for a given field in the real spherical
+	harmonics spectral space multiplied by the cosine of latitude. The spectral field coefficients of
+	triangular truncation lmax need to be shaped as (2,lmax+1,lmax+1).
 
+	The following recursion relation between spectral coefficients is used to compute the derivative:
+	-->	cos(theta) * d/dtheta f_lm = ((l+2) * eps_l+1,m * f_l+1,m - (l-1) * eps_lm * f_l-1,m)
+		eps_lm = sqrt((l^2 - m^2) / (4*l^2 - 1))
+
+	PARAMETERS:
+	(input) -->
+		field_spec : 3D array (2, lmax+1, lmax+1) of real spherical harmonics coefficients
+					[0,:,:] for cosine coefficients and [1,:,:] for sine coefficients
+	(internal) -->
+		R : Earth radius (for correct scaling)
+	(output) -->
+		dtheta : 3D array (2, lmax+1, lmax+1) with the coefficients of the derivative in latitude * cos(latitude)
+	"""
+
+	# We obtain the spectral truncation of the coefficients
 	lmax = field_spec.shape[1] - 1
+
+	# We generate an empty array to store the derivative coefficients
 	dtheta = np.zeros_like(field_spec)
 
+	# We generate a vector of m's from 0 to lmax
 	m = np.arange(lmax + 1)
 
+	# We iterate over all wavenumbers l from 0 to lmax
 	for l in range(lmax + 1):
+		# We get the m orders from 0 to l+1
 		m_valid = m[:l+1]
 
+		# We precompute the epsilon values
 		eps_l = np.sqrt((l**2 - m_valid**2) / (4*l**2 - 1))
 		eps_lp1 = np.sqrt(((l+1)**2 - m_valid**2) / (4*(l+1)**2 - 1))
 
+		# We apply the recursion relation
 		if l == 0:
 			dtheta[:, l, :l+1] = (l+2) * eps_lp1 * field_spec[:, l+1, :l+1]
 		elif l == lmax:
@@ -63,37 +150,68 @@ def theta_derivative(field_spec):
 			dtheta[:, l, :l+1] = ((l+2) * eps_lp1 * field_spec[:, l+1, :l+1]
 								- (l-1) * eps_l * field_spec[:, l-1, :l+1])
 
+	# Finally we divide by the Earth radius to get the correct units
 	return dtheta / R
 
 
-def compute_vort(u_spec, v_spec):
-	
-	u_theta_spec = theta_derivative(u_spec)
-	v_lambda_spec = lambda_derivative(v_spec)
-
-	vort_spec = v_lambda_spec - u_theta_spec
-
-	return vort_spec
-
-
 def compute_adv(u, v, vort):
+	"""
+	This function computes the advection term of the BVE in the spectral space multiplied by 
+	cos(latitude) given the horizontal velocity fields and the vorticity field in the grid space.
+	---> cos(theta) * adv = -1/R * d/dlambda (u * (zeta+f)) - cos(theta)/R * d/dtheta (v * (zeta+f))
+		Where: V * Nabla(zeta+f) = Nabla * (V * (zeta+f)); as flow is non divergent (Nabla*V = 0)
 
+	To avoid convolutions, the product is computed in the grid and then transformed to spectral
+	space to perform the horizontal divergence of the product.
+	
+	PARAMETERS:
+	(input) -->
+		u : 2D array (ny, nx) of grid zonal velocity field
+		v : 2D array (ny, nx) of grid meridional velocity field
+		vort : 2D array (ny, nx) of grid vorticity field
+	(output) -->
+		adv_spec : 3D array (2, lmax+1, lmax+1) with the spectral coefficients of the advection term
+	"""
+
+	# We first compute the product V(zeta+f) in the spectral space
 	u_zeta = u * (vort + f)
 	v_zeta = v * (vort + f)
 
+	# Then we transform the product into the spectral space
 	u_zeta_spec = grid2spec(u_zeta, gridtype)
 	v_zeta_spec = grid2spec(v_zeta, gridtype)
 
+	# We compute the horizontal divergence
 	u_zeta_lambda_spec = lambda_derivative(u_zeta_spec)
 	v_zeta_theta_spec = theta_derivative(v_zeta_spec)
 
+	# And we obtain the advection term multiplied by cos(latitude)
 	adv_spec = - (u_zeta_lambda_spec + v_zeta_theta_spec)
 
 	return adv_spec
 
 
 def compute_vel(stream_spec):
+	"""
+	This function computes the horizontal velocity fields in the spectral space multiplied by cos(latitude)
+	given the spectral coefficients of the stream function. The spectral field coefficients of triangular
+	truncation lmax need to be shaped as (2,lmax+1,lmax+1).
 
+	To do so, it computes the curl of the stream function:
+	--> V = Nabla x psi
+		cos(theta) * u = - cos(theta)/R * d/dtheta psi
+		cos(theta) * v = 1/R * d/dlambda psi
+
+	PARAMETERS:
+	(input) -->
+		stream_spec : 3D array (2, lmax+1, lmax+1) of real spherical harmonics coefficients
+					[0,:,:] for cosine coefficients and [1,:,:] for sine coefficients
+	(output) -->
+		u_spec : 3D array (2, lmax+1, lmax+1) with the spectral coefficients of the zonal velocity field multiplied by cos(latitude)
+		v_spec : 3D array (2, lmax+1, lmax+1) with the spectral coefficients of the meridional velocity field multiplied by cos(latitude)
+	"""
+
+	# We compute the spectral curl of the stream function
 	u_spec = - theta_derivative(stream_spec)
 	v_spec = lambda_derivative(stream_spec)
 
@@ -111,6 +229,7 @@ if __name__ == '__main__':
 	# We define all the main parameters that will be used in the simulation
 	print("Obtaining model parameters ...\n")
 
+	# We first import all the initial parameters defined in the config.py file
 	from config import *
 
 	# We first verify that truncation is lower than the grid sampling
