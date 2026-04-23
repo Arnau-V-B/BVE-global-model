@@ -8,34 +8,24 @@ import os
 import matplotlib.pyplot as plt
 
 
-def grid2spec(field, grid='DH'):
+def grid2spec(field, grid):
 
 	if grid == 'DH':
-		field_spec = pysh.expand.SHExpandDH(field,sampling=2)
+		field_spec = pysh.expand.SHExpandDH(field, sampling=2, lmax_calc=lmax)
 
 	elif grid == 'GLQ':
-		lmax = field.shape[0]//2 - 1
-		nlat_quad = 3 * (lmax + 1) // 2
-		lmax_glq = nlat_quad - 1
-
-		glq_nodes, glq_weights = pysh.expand.SHGLQ(lmax_glq)
 		field_spec = pysh.expand.SHExpandGLQ(field, w=glq_weights, zero=glq_nodes, lmax_calc=lmax)
 
 	return field_spec
 
 
-def spec2grid(field_spec, grid='DH'):
+def spec2grid(field_spec, grid):
 
 	if grid == 'DH':
-		field = pysh.expand.MakeGridDH(field_spec,sampling=2)
+		field = pysh.expand.MakeGridDH(field_spec, sampling=2, lmax=sampl)
 
 	elif grid == 'GLQ':
-		lmax = field_spec.shape[0]//2 - 1
-		nlat_quad = 3 * (lmax + 1) // 2
-		lmax_glq = nlat_quad - 1
-
-		glq_nodes, glq_weights = pysh.expand.SHGLQ(lmax_glq)
-		field = pysh.expand.MakeGridGLQ(field_spec, zero=glq_nodes, lmax=lmax_glq)
+		field = pysh.expand.MakeGridGLQ(field_spec, zero=glq_nodes, lmax=sampl)
 
 	return field
 
@@ -91,8 +81,8 @@ def compute_adv(u, v, vort):
 	u_zeta = u * (vort + f)
 	v_zeta = v * (vort + f)
 
-	u_zeta_spec = grid2spec(u_zeta)
-	v_zeta_spec = grid2spec(v_zeta)
+	u_zeta_spec = grid2spec(u_zeta, gridtype)
+	v_zeta_spec = grid2spec(v_zeta, gridtype)
 
 	u_zeta_lambda_spec = lambda_derivative(u_zeta_spec)
 	v_zeta_theta_spec = theta_derivative(v_zeta_spec)
@@ -122,22 +112,32 @@ if __name__ == '__main__':
 	print("Obtaining model parameters ...\n")
 
 	from config import *
-	global f, derfact
+
+	# We first verify that truncation is lower than the grid sampling
+	if lmax > sampl:
+		raise ValueError("lmax must be smaller or equal to sampl")
 	
-	# We generate the Driscoll-Healy spherical grid (i.e. equally spaced Nx2N)
-	nlat_dh = len(lat) - 1
-	lat_dh = np.linspace(90 - 0*90/nlat_dh, -90 + 0*90/nlat_dh, nlat_dh)
-	lon_dh = np.linspace(0, 360, 2*nlat_dh, endpoint=False)
-	lons_dh, lats_dh = np.meshgrid(lon_dh, lat_dh)
+	if gridtype == 'DH':
+		# DH grid scheme has less spectral resolution: nlat_grid ~ 2*sampling
+		nlat_grid = 2 * sampl + 2
+		lat_grid = np.linspace(90, -90, nlat_grid)					# 90º to -90º
+		lon_grid = np.linspace(0, 360, 2*nlat_grid, endpoint=False) # 0º to 360º (not included)
+		lons_grid, lats_grid = np.meshgrid(lon_grid, lat_grid)
+	elif gridtype == 'GLQ':
+		# GLQ grid scheme has highest spectral resolution: nlat_grid ~ sampling
+		nlat_grid = sampl
+		glq_nodes, glq_weights = pysh.expand.SHGLQ(nlat_grid)	# Hermite polynomials zeros
+		lat_grid = np.degrees(np.arcsin(glq_nodes))				# Gaussian latitudes
+		lon_grid = np.linspace(0, 360, 2*nlat_grid+1)			# 0º to 360º (included)
+		lons_grid, lats_grid = np.meshgrid(lon_grid, lat_grid)
 
 	# We precompute some useful parameters
-	f = 2 * Omega * np.sin(np.pi * lats_dh / 180)	# Coriolis parameter
-	derfact = 1 / np.cos(np.pi * lats_dh / 180)		# Spherical scale factor
+	f = 2 * Omega * np.sin(np.pi * lats_grid / 180)	# Coriolis parameter
+	derfact = 1 / np.cos(np.pi * lats_grid / 180)		# Spherical scale factor
 	derfact[0] = derfact[1]			# Avoid division by zero
 	derfact[-1] = derfact[-2]		# Avoid division by zero
 
-	# We build the laplacian operators in the spectral space (with truncation: nlat = 2(lmax+1))
-	lmax = nlat_dh//2 - 1
+	# We build the laplacian operators in the spectral space (with desired truncation lmax)
 	l = np.arange(lmax + 1).reshape(1, -1, 1)		# i.e. [1, lmax+1, 1]
 	lap = - l * (l + 1) / R**2			# Normal laplacian
 	lap2 = lap**2						# Squared laplacian (for hyperdiffiusion n=2)
@@ -171,19 +171,22 @@ if __name__ == '__main__':
 	interp_z = RegularGridInterpolator((lat, lon), zeta0, bounds_error=False, fill_value=None)
 
 	# We interpolate the original vorticity field to the DH grid
-	zeta0_grid = interp_z((lats_dh, lons_dh))
+	zeta0_grid = interp_z((lats_grid, lons_grid))
+	print(f'Initial grid shape: {zeta0_grid.shape}')
 
 	# We convert it to spectral space
-	zeta0_spec = grid2spec(zeta0_grid)
+	zeta0_spec = grid2spec(zeta0_grid, gridtype)
+	print(f'Spec shape: {zeta0_spec.shape}')
 
 	# We obtain the stream function field from the relative vorticity
 	psi0_spec = inv_lap * zeta0_spec
-	psi0 = spec2grid(psi0_spec)
+	psi0 = spec2grid(psi0_spec, gridtype)
+	print(f'Final grid shape: {psi0.shape}')
 
 	# And we extract the horizontal velocity fields from the stream function
 	u0_spec, v0_spec = compute_vel(psi0_spec)
-	u0 = spec2grid(u0_spec) * derfact
-	v0 = spec2grid(v0_spec) * derfact
+	u0 = spec2grid(u0_spec, gridtype) * derfact
+	v0 = spec2grid(v0_spec, gridtype) * derfact
 
 
 
@@ -237,8 +240,12 @@ if __name__ == '__main__':
 
 	# We also save the initial fields
 	times.append(ti)
-	streamfunctions.append(psi0.copy())
-	vorticities.append(zeta0_grid.copy())
+	if gridtype == 'GLQ':		# Remove the extra 360º longitude band
+		streamfunctions.append(psi0[:,:-1].copy())
+		vorticities.append(zeta0_grid[:,:-1].copy())
+	else: 
+		streamfunctions.append(psi0.copy())
+		vorticities.append(zeta0_grid.copy())
 
 	# Finally we set the next save time
 	next_save_time = save_time
@@ -256,15 +263,15 @@ if __name__ == '__main__':
 	# We apply the hyperdiffusion implicitly (i.e. (1+dt*hyp)zeta_i+1 = rhs_i))
 	zetanew_spec = (zeta_spec + dt * adv0_spec) * hyp_denom1
 	# zetanew = spec2grid(zetanew_spec) * derfact
-	zetanew = spec2grid(zetanew_spec)
+	zetanew = spec2grid(zetanew_spec, gridtype)
 
 	# We can also extract the new stream function field
 	psi_spec = inv_lap * zetanew_spec
 	
 	# And extract the new velocity fields
 	u_spec, v_spec = compute_vel(psi_spec)
-	u = spec2grid(u_spec) * derfact
-	v = spec2grid(v_spec) * derfact
+	u = spec2grid(u_spec, gridtype) * derfact
+	v = spec2grid(v_spec, gridtype) * derfact
 
 
 
@@ -347,15 +354,15 @@ if __name__ == '__main__':
 		zeta_spec += nu*alpha/2.0 * delta
 		zetanew_spec += - nu*(1-alpha)/2.0 * delta
 		# zetanew = spec2grid(zetanew_spec) * derfact
-		zetanew = spec2grid(zetanew_spec)
+		zetanew = spec2grid(zetanew_spec, gridtype)
 
 		# Now we can extract the new stream function field
 		psi_spec = inv_lap * zetanew_spec
 
 		# And compute the new velocity fields
 		u_spec, v_spec = compute_vel(psi_spec)
-		u = spec2grid(u_spec) * derfact
-		v = spec2grid(v_spec) * derfact
+		u = spec2grid(u_spec, gridtype) * derfact
+		v = spec2grid(v_spec, gridtype) * derfact
 
 		# Finally, we comptute the conserved values
 		energy = np.mean(0.5 * (u**2 + v**2))
@@ -417,9 +424,13 @@ if __name__ == '__main__':
 		# Every time we get to the save interval, we save a snapshot of the psi and zeta fields
 		if t >= next_save_time:
 			times.append(t)
-			psi = spec2grid(psi_spec)
-			streamfunctions.append(psi.copy())
-			vorticities.append(zetanew.copy())
+			psi = spec2grid(psi_spec, gridtype)
+			if gridtype == 'GLQ':	# We remove the extra 360º longitude band
+				streamfunctions.append(psi[:,:-1].copy())
+				vorticities.append(zetanew[:,:-1].copy())
+			else:
+				streamfunctions.append(psi.copy())
+				vorticities.append(zetanew.copy())
 			next_save_time += save_time
 
 
@@ -474,8 +485,11 @@ if __name__ == '__main__':
 	# And then the vorticity and stream function snapshots
 
 	# First, we generate the standard time, latitude and longitude coordinates
+	if gridtype == 'GLQ':
+		lon_grid = lon_grid[:-1]	# We remove the extra 360º longitude band
+
 	time_steps = np.array(times, dtype='timedelta64[s]')
-	date_times = start_date + time_steps
+	date_times = start_date + time_steps	# Simulation dates
 
 	time_coord = xr.DataArray(
 		date_times,
@@ -486,7 +500,7 @@ if __name__ == '__main__':
 		}
 	)
 	lat_coord = xr.DataArray(
-		lat_dh,
+		lat_grid,
 		dims='lat',
 		attrs={
 			'units': 'degrees_north',
@@ -496,7 +510,7 @@ if __name__ == '__main__':
 		}
 	)
 	lon_coord = xr.DataArray(
-		lon_dh,
+		lon_grid,
 		dims='lon',
 		attrs={
 			'units': 'degrees_east',
@@ -529,7 +543,7 @@ if __name__ == '__main__':
 		'units': 'm**2 s**-1',
 		'long_name': 'Stream function',
 		'standard_name': 'streamfunction',
-		'gridType': 'Driscoll-Healy (n*2n)'
+		'gridType': f'{gridtype} (T{lmax})'
 	}
 	evo['vorticity'].attrs = {
 		'description': '2D simulated vorticity field',
@@ -537,7 +551,7 @@ if __name__ == '__main__':
 		'long_name': 'Vorticity (relative)',
 		'standard_name': 'vorticity',
 		'positive': 'Cyclonic',
-		'gridType': 'Driscoll-Healy (n*2n)'
+		'gridType': f'{gridtype} (T{lmax})'
 	}
 
 	evo_file = f"fields_evolution_{output_name}.nc"
