@@ -166,9 +166,11 @@ def compute_adv(u, v, vort):
 	
 	PARAMETERS:
 	(input) -->
-		u : 2D array (ny, nx) of grid zonal velocity field
-		v : 2D array (ny, nx) of grid meridional velocity field
-		vort : 2D array (ny, nx) of grid vorticity field
+		u : 2D array (nlat, nlon) of grid zonal velocity field
+		v : 2D array (nlat, nlon) of grid meridional velocity field
+		vort : 2D array (nlat, nlon) of grid vorticity field
+	(internal) -->
+		f : 2D array (nlat, nlon) of grid Coriolis parameter (f=2*Omega*sin(latitude))
 	(output) -->
 		adv_spec : 3D array (2, lmax+1, lmax+1) with the spectral coefficients of the advection term
 	"""
@@ -529,16 +531,15 @@ if __name__ == '__main__':
 		# fig.savefig('temp/' + fig_name)
 		# plt.close(fig)
 
+
+
+
+
+		# Each iteration we check if the simulation is diverging
 		if np.isinf(zetanew).any():
-			print("Infinity detected")
-			break
+			raise ValueError(f"Infinity detected in vorticity field at t = {t/3600:.2f}h")
 		elif np.isnan(zetanew).any():
-			print("NaN detected")
-			break
-
-
-
-
+			raise ValueError(f"NaN detected in vorticity field at t = {t/3600:.2f}h")
 
 		# Every time we get to the save interval, we save a snapshot of the psi and zeta fields
 		if t >= next_save_time:
