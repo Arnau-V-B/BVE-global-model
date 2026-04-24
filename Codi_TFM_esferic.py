@@ -175,7 +175,7 @@ def compute_adv(u, v, vort):
 		adv_spec : 3D array (2, lmax+1, lmax+1) with the spectral coefficients of the advection term
 	"""
 
-	# We first compute the product V(zeta+f) in the spectral space
+	# We first compute the product V(zeta+f) in the grid space
 	u_zeta = u * (vort + f)
 	v_zeta = v * (vort + f)
 
@@ -288,21 +288,18 @@ if __name__ == '__main__':
 	# Now, we generate the initial velocity fields
 	print("Generating initial fields ...\n")
 
-	# We configure the interpolator from regular grid to DH grid
+	# We configure the interpolator from the original grid to the custom grid
 	interp_z = RegularGridInterpolator((lat, lon), zeta0, bounds_error=False, fill_value=None)
 
-	# We interpolate the original vorticity field to the DH grid
+	# We interpolate the original vorticity field to the custom grid
 	zeta0_grid = interp_z((lats_grid, lons_grid))
-	print(f'Initial grid shape: {zeta0_grid.shape}')
 
 	# We convert it to spectral space
 	zeta0_spec = grid2spec(zeta0_grid, gridtype)
-	print(f'Spec shape: {zeta0_spec.shape}')
 
 	# We obtain the stream function field from the relative vorticity
 	psi0_spec = inv_lap * zeta0_spec
 	psi0 = spec2grid(psi0_spec, gridtype)
-	print(f'Final grid shape: {psi0.shape}')
 
 	# And we extract the horizontal velocity fields from the stream function
 	u0_spec, v0_spec = compute_vel(psi0_spec)
@@ -375,7 +372,7 @@ if __name__ == '__main__':
 	# We start the time integration
 	print("Starting time integration ...")
 
-	# We compute the advection term (spec --> grid --> spec)
+	# We compute the advection term
 	adv0_spec = compute_adv(u0, v0, zeta0_grid)
 
 	# And perform a forward Euler step in time for the first integration
