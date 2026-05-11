@@ -156,10 +156,12 @@ def theta_derivative(field_spec):
 
 def compute_adv(u, v, vort):
 	"""
-	This function computes the advection term of the BVE in the spectral space multiplied by 
-	cos(latitude) given the horizontal velocity fields and the vorticity field in the grid space.
-	---> cos(theta) * adv = -1/R * d/dlambda (u * (zeta+f)) - cos(theta)/R * d/dtheta (v * (zeta+f))
-		Where: V * Nabla(zeta+f) = Nabla * (V * (zeta+f)); as flow is non divergent (Nabla*V = 0)
+	This function computes the advection term of the BVE in the spectral space given the horizontal
+	velocity fields and the vorticity field in the grid space.
+	Assuming a non-divergent flow:
+	---> adv = - V * Nabla(zeta+f) = - Nabla * (V * (zeta+f)) = - div(V * (zeta+f))
+	In spherical coordinates the horizontal divergence is given by:
+	---> div(A) = 1/(R*cos(theta)) * d/dlambda (A) + 1/R * d/dtheta (A) - 1/R * tan(theta) * A
 
 	To avoid convolutions, the product is computed in the grid and then transformed to spectral
 	space to perform the horizontal divergence of the product.
@@ -171,6 +173,8 @@ def compute_adv(u, v, vort):
 		vort : 2D array (nlat, nlon) of grid vorticity field
 	(internal) -->
 		f : 2D array (nlat, nlon) of grid Coriolis parameter (f=2*Omega*sin(latitude))
+		derfact : 2D array (nlat, nlon) of grid inverse cosine of latitude (derfact=1/cos(latitude))
+		tan_lat : 2D array (nlat, nlon) of grid tangent of latitude (tan_lat=tan(latitude))
 	(output) -->
 		adv_spec : 3D array (2, lmax+1, lmax+1) with the spectral coefficients of the advection term
 	"""
@@ -183,12 +187,19 @@ def compute_adv(u, v, vort):
 	u_zeta_spec = grid2spec(u_zeta, gridtype)
 	v_zeta_spec = grid2spec(v_zeta, gridtype)
 
-	# We compute the horizontal divergence
+	# We compute the spectral derivatives
 	u_zeta_lambda_spec = lambda_derivative(u_zeta_spec)
 	v_zeta_theta_spec = theta_derivative(v_zeta_spec)
 
-	# And we obtain the advection term multiplied by cos(latitude)
-	adv_spec = - (u_zeta_lambda_spec + v_zeta_theta_spec)
+	# We obtain the flat part of the horizontal divergence
+	div_spec = u_zeta_lambda_spec + v_zeta_theta_spec
+	# And transform it to grid space dividing by cos(theta)
+	div = spec2grid(div_spec, gridtype) * derfact
+
+	# We apply the curvature term and change sign to obtain the advection
+	adv = - (div - v_zeta * tan_lat / R)
+	# And we transform the advection into the spectral space
+	adv_spec = grid2spec(adv, gridtype)
 
 	return adv_spec
 
@@ -255,8 +266,12 @@ if __name__ == '__main__':
 	# We precompute some useful parameters
 	f = 2 * Omega * np.sin(np.pi * lats_grid / 180)	# Coriolis parameter
 	derfact = 1 / np.cos(np.pi * lats_grid / 180)		# Spherical scale factor
-	derfact[0] = derfact[1]			# Avoid division by zero
-	derfact[-1] = derfact[-2]		# Avoid division by zero
+	tan_lat = np.tan(np.pi * lats_grid / 180)			# Tangent of latitude
+	if gridtype == 'DH':				# Avoid division by zero
+		derfact[0] = derfact[1]
+		derfact[-1] = derfact[-2]
+		tan_lat[0] = tan_lat[1]
+		tan_lat[-1] = tan_lat[-2]
 
 	# We build the laplacian operators in the spectral space (with desired truncation lmax)
 	l = np.arange(lmax + 1).reshape(1, -1, 1)		# i.e. [1, lmax+1, 1]
@@ -795,11 +810,16 @@ if __name__ == '__main__':
 
 	# Finally, we plot the stream function field evolution
 	images = []
+	vmin = np.min(streamfunctions.values)
+	vmax = np.max(streamfunctions.values)
+	step = 5e6
+	lvls = np.arange(vmin, vmax+step, step)
 
 	for i in range(len(times)):
 
 		fig, ax = plt.subplots(figsize=(8,4))
-		mesh = ax.contour(lons,lats,streamfunctions[i],cmap='coolwarm')
+		mesh = ax.contourf(lons,lats,streamfunctions[i],cmap='viridis',
+					 		levels=lvls, extend='both')
 		cbar = fig.colorbar(mesh, ax=ax, label=r'Stream function ($\mathrm{m^2/s}$)')
 		ax.set_title(f'Stream function field at t = {times[i]}h')
 		ax.set_xlabel(r'$\lambda$ (º)')
