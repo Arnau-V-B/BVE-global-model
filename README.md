@@ -2,7 +2,7 @@
 
 This program solves the non-divergent BVE on the sphere using spherical harmonics transforms. It is designed for global atmospheric dynamics simulations, such as 500 hPa flow evolution, with realistic initial conditions of single-level relative vorticity fields from reanalysis data (e.g., ERA5). The workflow of the code is based on [technical documentation](https://www.gfdl.noaa.gov/wp-content/uploads/files/user_files/pjp/barotropic.pdf) from the NOAA Geophysical Fluid Dynamics Laboratory (GFDL).
 
-The model uses a spectral transform method with triangular truncation, supports both equally sampled (Driscoll–Healy) and Gauss–Legendre quadrature grids, and includes implicit hyperdiffusion for numerical stability. The time integration follows a leapfrog scheme with a Robert–Asselin–Williams (RAW) filter to control its associated computational mode and improve the accuracy to third order (i.e. $O(\Delta t^3)$), and the time step is set to 30 min (but it can be lowered if numerical instability appears).
+The model uses a spectral transform method with triangular truncation, supports both equally sampled (Driscoll–Healy) and Gauss–Legendre quadrature grids (see SHTOOLS [documentation](https://shtools.github.io/SHTOOLS/)), and includes implicit hyperdiffusion for numerical stability. The time integration follows a leapfrog scheme with a Robert–Asselin–Williams (RAW) filter to control its associated computational mode and improve the accuracy to third order (i.e. $O(\Delta t^3)$), and the time step is set to 30 min (but it can be lowered if numerical instability appears).
 
 ## Mathematical formalism
 
