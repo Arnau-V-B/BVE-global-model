@@ -125,7 +125,7 @@ def theta_derivative(field_spec):
 	triangular truncation lmax need to be shaped as (2,lmax+1,lmax+1).
 
 	The following recursion relation between spectral coefficients is used to compute the derivative:
-	-->	cos(theta) * d/dtheta f_lm = ((l+2) * eps_l+1,m * f_l+1,m - (l-1) * eps_lm * f_l-1,m)
+	-->	cos(theta) * d/dtheta f_lm = (l+2) * eps_l+1,m * f_l+1,m - (l-1) * eps_lm * f_l-1,m
 		eps_lm = sqrt((l^2 - m^2) / (4*l^2 - 1))
 
 	PARAMETERS:
@@ -255,7 +255,7 @@ if __name__ == '__main__':
 	start_time = time.time()
 
 	# We generate an output folder to save the results of the simulation
-	output_dir = "output_spherical/"
+	output_dir = "output/"
 	os.makedirs(output_dir, exist_ok=True)
 
 	# We define all the main parameters that will be used in the simulation >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
@@ -722,13 +722,13 @@ if __name__ == '__main__':
 		ax.set_ylabel(r'$\phi$ (º)')
 		fig.tight_layout()
 
-		fig_name = f"stream_function_field_{output_name}_t{times[i]}h.png"
+		fig_name = f"streamfunction_field_{output_name}_t{times[i]}h.png"
 		fig.savefig(im_dir + "temp_frames/" + fig_name, dpi=150)
 		plt.close(fig)
 
 		images.append(imageio.v2.imread(im_dir + "temp_frames/" + fig_name))
 	
-	gif_name = f"stream_function_field_{output_name}_evolution.gif"
+	gif_name = f"streamfunction_field_{output_name}_evolution.gif"
 	imageio.mimsave(im_dir + gif_name, images, duration=250, loop=0)
 
 	evo.close()

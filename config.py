@@ -3,7 +3,7 @@ Configuration file for the global non-linear non-divergent barotropic vorticity 
 All the initial conditions of the simulation are defined in this file. The code is prepared to read the
 netCDF file of an ERA5 reanalysis relative vorticity field, but it can easily be adapted for any other
 dataset options.
-This script has to be placed in the same direcotry as the main program main_BVE_nonlinear_glob.py
+This script has to be placed in the same direcotry as the main program main_BVE_glob.py
 """
 
 import xarray as xr
@@ -19,7 +19,7 @@ g0 = 9.806                            # Mean gravitational acceleration (in m/s^
 # TIME INTEGRATION ==========================================================================================
 ti = 0                                # Initial time (in s)
 tf = 48 * 3600		                  # Final time (in s)
-dt = 400                              # Time step (in s)
+dt = 1800                             # Time step (in s)
 tau_d = 3 * 3600                      # Hyperdiffusion time scale (in s)
 
 # RAW filter
