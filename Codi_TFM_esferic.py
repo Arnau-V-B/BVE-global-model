@@ -1,3 +1,17 @@
+"""
+Main program that runs the non-divergent barotropic vorticity equation (BVE) simulation.
+The initial conditions can be set in the config.py file located in the same directory.
+This version of the program computes the non-linear non-divergent BVE globally in spherical coordinates
+using spherical harmonics transforms.
+At the end, an output folder is generated to save the results in netCDF format and simple figures with
+GIFs to keep track of the conservation properties of the model and visualize the evolution of the
+streamfunction and vorticity fields.
+
+@Author: Arnau Vicente Bou
+"""
+
+
+# Python libraries to import
 import numpy as np
 from scipy.interpolate import RegularGridInterpolator
 import xarray as xr
@@ -5,28 +19,29 @@ import pyshtools as pysh
 import time
 import sys
 import os
-import matplotlib.pyplot as plt
 
+
+# FUNCTIONS DEFINED FOR THE SIMULATION ================================================================================
 
 def grid2spec(field, grid):
 	"""
 	This function takes a 2D gridded field and transforms it into a set of real spherical harmonics
-	coefficients until a maximum order of triangular truncation lmax.
+	coefficients up to a maximum order of triangular truncation lmax.
 
 	It accepts both Discroll-Healy (DH) (equally sampled) and Gauss-Legendre quadrature (GLQ)
 	(gaussian latitudes) grids.
 
 	PARAMETERS:
 	(input) -->
-		field : 2D array (nlat, nlon) of grid field
-		grid : type of grid quadrature: DH or GLQ
+		field       : 2D array (nlat, nlon) of grid field
+		grid        : type of grid quadrature: DH or GLQ
 	(internal) -->
-		lmax : maximum wavenumber for spectral triangular truncation
+		lmax        : maximum wavenumber for spectral triangular truncation
 		glq_weights : weights for each of the roots of Legendre polynomial of roder lmax
-		glq_nodes : roots of Legendre polynomial of order lmax
+		glq_nodes   : roots of Legendre polynomial of order lmax
 	(output) -->
-		field_spec : 3D array (2, lmax+1, lmax+1) of real spherical harmonics coefficients
-					[0,:,:] for cosine coefficients and [1,:,:] for sine coefficients
+		field_spec  : 3D array (2, lmax+1, lmax+1) of real spherical harmonics coefficients,
+					  [0,:,:] for cosine coefficients and [1,:,:] for sine coefficients
 	"""
 
 	if grid == 'DH':
@@ -48,14 +63,14 @@ def spec2grid(field_spec, grid):
 
 	PARAMETERS:
 	(input) -->
-		field_spec : 3D array (2, lmax+1, lmax+1) of real spherical harmonics coefficients
-					[0,:,:] for cosine coefficients and [1,:,:] for sine coefficients
-		grid : type of grid quadrature: DH or GLQ
+		field_spec : 3D array (2, lmax+1, lmax+1) of real spherical harmonics coefficients,
+					 [0,:,:] for cosine coefficients and [1,:,:] for sine coefficients
+		grid       : type of grid quadrature: DH or GLQ
 	(internal) -->
-		sampl : sampling of the resulting gridded field
-		glq_nodes : roots of Legendre polynomial of order lmax
+		sampl      : sampling of the resulting gridded field
+		glq_nodes  : roots of Legendre polynomial of order lmax
 	(output) -->
-		field : 2D array (nlat, nlon) of the gridded field
+		field      : 2D array (nlat, nlon) of the gridded field
 	"""
 
 	if grid == 'DH':
@@ -80,12 +95,12 @@ def lambda_derivative(field_spec):
 
 	PARAMETERS:
 	(input) -->
-		field_spec : 3D array (2, lmax+1, lmax+1) of real spherical harmonics coefficients
-					[0,:,:] for cosine coefficients and [1,:,:] for sine coefficients
+		field_spec : 3D array (2, lmax+1, lmax+1) of real spherical harmonics coefficients,
+					 [0,:,:] for cosine coefficients and [1,:,:] for sine coefficients
 	(internal) -->
-		R : Earth radius (for correct scaling)
+		R          : Earth radius (for correct scaling)
 	(output) -->
-		dlambda : 3D array (2, lmax+1, lmax+1) with the coefficients of the derivative in longitude
+		dlambda    : 3D array (2, lmax+1, lmax+1) with the coefficients of the derivative in longitude
 	"""
 
 	# We obtain the spectral truncation of the coefficients
@@ -116,11 +131,11 @@ def theta_derivative(field_spec):
 	PARAMETERS:
 	(input) -->
 		field_spec : 3D array (2, lmax+1, lmax+1) of real spherical harmonics coefficients
-					[0,:,:] for cosine coefficients and [1,:,:] for sine coefficients
+					 [0,:,:] for cosine coefficients and [1,:,:] for sine coefficients
 	(internal) -->
-		R : Earth radius (for correct scaling)
+		R          : Earth radius (for correct scaling)
 	(output) -->
-		dtheta : 3D array (2, lmax+1, lmax+1) with the coefficients of the derivative in latitude * cos(latitude)
+		dtheta     : 3D array (2, lmax+1, lmax+1) with the coefficients of the derivative in lat * cos(lat)
 	"""
 
 	# We obtain the spectral truncation of the coefficients
@@ -160,26 +175,26 @@ def compute_adv(u, v, vort):
 	velocity fields and the vorticity field in the grid space.
 	Assuming a non-divergent flow:
 	---> adv = - V * Nabla(zeta+f) = - Nabla * (V * (zeta+f)) = - div(V * (zeta+f))
-	In spherical coordinates the horizontal divergence is given by:
+	In spherical coordinates the horizontal divergence of a field A is given by:
 	---> div(A) = 1/(R*cos(theta)) * d/dlambda (A) + 1/R * d/dtheta (A) - 1/R * tan(theta) * A
 
-	To avoid convolutions, the product is computed in the grid and then transformed to spectral
+	To avoid convolutions, products are computed in the grid and then transformed to spectral
 	space to perform the horizontal divergence of the product.
 	
 	PARAMETERS:
 	(input) -->
-		u : 2D array (nlat, nlon) of grid zonal velocity field
-		v : 2D array (nlat, nlon) of grid meridional velocity field
-		vort : 2D array (nlat, nlon) of grid vorticity field
+		u        : 2D array (nlat, nlon) of grid zonal velocity field
+		v        : 2D array (nlat, nlon) of grid meridional velocity field
+		vort     : 2D array (nlat, nlon) of grid vorticity field
 	(internal) -->
-		f : 2D array (nlat, nlon) of grid Coriolis parameter (f=2*Omega*sin(latitude))
-		derfact : 2D array (nlat, nlon) of grid inverse cosine of latitude (derfact=1/cos(latitude))
-		tan_lat : 2D array (nlat, nlon) of grid tangent of latitude (tan_lat=tan(latitude))
+		f        : 2D array (nlat, nlon) of grid Coriolis parameter (f=2*Omega*sin(latitude))
+		derfact  : 2D array (nlat, nlon) of grid inverse cosine of latitude (derfact=1/cos(latitude))
+		tan_lat  : 2D array (nlat, nlon) of grid tangent of latitude (tan_lat=tan(latitude))
 	(output) -->
 		adv_spec : 3D array (2, lmax+1, lmax+1) with the spectral coefficients of the advection term
 	"""
 
-	# We first compute the product V(zeta+f) in the grid space
+	# We first compute the product V·(zeta+f) in the grid space
 	u_zeta = u * (vort + f)
 	v_zeta = v * (vort + f)
 
@@ -198,7 +213,7 @@ def compute_adv(u, v, vort):
 
 	# We apply the curvature term and change sign to obtain the advection
 	adv = - (div - v_zeta * tan_lat / R)
-	# And we transform the advection into the spectral space
+	# And we transform the advection to the spectral space
 	adv_spec = grid2spec(adv, gridtype)
 
 	return adv_spec
@@ -206,7 +221,7 @@ def compute_adv(u, v, vort):
 
 def compute_vel(stream_spec):
 	"""
-	This function computes the horizontal velocity fields in the spectral space multiplied by cos(latitude)
+	This function computes the horizontal velocity fields in the spectral space multiplied by cos(lat)
 	given the spectral coefficients of the stream function. The spectral field coefficients of triangular
 	truncation lmax need to be shaped as (2,lmax+1,lmax+1).
 
@@ -217,11 +232,13 @@ def compute_vel(stream_spec):
 
 	PARAMETERS:
 	(input) -->
-		stream_spec : 3D array (2, lmax+1, lmax+1) of real spherical harmonics coefficients
-					[0,:,:] for cosine coefficients and [1,:,:] for sine coefficients
+		stream_spec : 3D array (2, lmax+1, lmax+1) of real spherical harmonics coefficients,
+					  [0,:,:] for cosine coefficients and [1,:,:] for sine coefficients
 	(output) -->
-		u_spec : 3D array (2, lmax+1, lmax+1) with the spectral coefficients of the zonal velocity field multiplied by cos(latitude)
-		v_spec : 3D array (2, lmax+1, lmax+1) with the spectral coefficients of the meridional velocity field multiplied by cos(latitude)
+		u_spec      : 3D array (2, lmax+1, lmax+1) with the spectral coefficients of the zonal velocity field
+					  multiplied by cos(latitude)
+		v_spec      : 3D array (2, lmax+1, lmax+1) with the spectral coefficients of the meridional velocity field
+					  multiplied by cos(latitude)
 	"""
 
 	# We compute the spectral curl of the stream function
@@ -231,15 +248,17 @@ def compute_vel(stream_spec):
 	return u_spec, v_spec
 
 
+# MAIN PROGRAM PIPELINE ===============================================================================================
+
 if __name__ == '__main__':
-	# We set a time counter to keep track of the total execution time of the code
+	# We set a time counter to keep track of the total execution time of the code through the terminal
 	start_time = time.time()
 
 	# We generate an output folder to save the results of the simulation
 	output_dir = "output_spherical/"
 	os.makedirs(output_dir, exist_ok=True)
 
-	# We define all the main parameters that will be used in the simulation
+	# We define all the main parameters that will be used in the simulation >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 	print("Obtaining model parameters ...\n")
 
 	# We first import all the initial parameters defined in the config.py file
@@ -249,6 +268,7 @@ if __name__ == '__main__':
 	if lmax > sampl:
 		raise ValueError("lmax must be smaller or equal to sampl")
 	
+	# We set the grid coordinates (different for DH and GLQ)
 	if gridtype == 'DH':
 		# DH grid scheme has less spectral resolution: nlat_grid ~ 2*sampling
 		nlat_grid = 2 * sampl + 2
@@ -264,7 +284,7 @@ if __name__ == '__main__':
 		lons_grid, lats_grid = np.meshgrid(lon_grid, lat_grid)
 
 	# We precompute some useful parameters
-	f = 2 * Omega * np.sin(np.pi * lats_grid / 180)	# Coriolis parameter
+	f = 2 * Omega * np.sin(np.pi * lats_grid / 180)		# Coriolis parameter
 	derfact = 1 / np.cos(np.pi * lats_grid / 180)		# Spherical scale factor
 	tan_lat = np.tan(np.pi * lats_grid / 180)			# Tangent of latitude
 	if gridtype == 'DH':				# Avoid division by zero
@@ -274,33 +294,32 @@ if __name__ == '__main__':
 		tan_lat[-1] = tan_lat[-2]
 
 	# We build the laplacian operators in the spectral space (with desired truncation lmax)
-	l = np.arange(lmax + 1).reshape(1, -1, 1)		# i.e. [1, lmax+1, 1]
-	lap = - l * (l + 1) / R**2			# Normal laplacian
-	lap2 = lap**2						# Squared laplacian (for hyperdiffiusion n=2)
-	inv_lap = np.zeros_like(lap)		# Inverse laplacian
-	inv_lap[l>0] = 1 / lap[l>0]		# Avoid division by zero
+	l = np.arange(lmax + 1).reshape(1, -1, 1)		# Polynomial degrees (shape = [1, lmax+1, 1])
+	lap = - l * (l + 1) / R**2						# Normal laplacian
+	lap2 = lap**2									# Squared laplacian (for hyperdiffiusion n=2)
+	inv_lap = np.zeros_like(lap)					# Inverse laplacian
+	inv_lap[l>0] = 1 / lap[l>0]			# Avoid division by zero
 
 	# We compute the hyperdiffusion coefficient (scaled accordingly)
-	kmax = (lmax * (lmax + 1)) / R**2		# Maximum wave mode
-	eta = 1 / (tau_d * kmax**2)
+	kmax = (lmax * (lmax + 1)) / R**2				# Maximum wave mode
+	eta = 1 / (tau_d * kmax**2)						# Hyperdiffusion coefficient
 	hyp_denom1 = 1 / (1 + dt * eta * lap2)			# Implicit operator for Euler scheme
 	hyp_denom2 = 1 / (1 + 2 * dt * eta * lap2)		# Implicit operator for Leapfrog scheme
 
 	# We generate empty lists to keep track of the conserved quantities:
-	# kinetic energy, enstrophy and mean vorticity
-	energies = []
-	enstrophies = []
-	mean_vorticities = []
+	energies = []					# kinetic energy
+	enstrophies = []				# enstrophy
+	mean_vorticities = []			# mean relative vorticity
 	# And also to save the evolution fields
-	times = []
-	streamfunctions = []
-	vorticities = []
+	times = []						# time
+	streamfunctions = []			# streamfunction
+	vorticities = []				# relative vorticity
 
 	# We create a folder in 'output' to save the results of the specific experiment
 	os.makedirs(output_dir + output_name, exist_ok=True)
 
 
-	# Now, we generate the initial velocity fields
+	# Now, we generate the initial fields >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 	print("Generating initial fields ...\n")
 
 	# We configure the interpolator from the original grid to the custom grid
@@ -312,55 +331,14 @@ if __name__ == '__main__':
 	# We convert it to spectral space
 	zeta0_spec = grid2spec(zeta0_grid, gridtype)
 
-	# We obtain the stream function field from the relative vorticity
+	# We obtain the streamfunction field from the relative vorticity
 	psi0_spec = inv_lap * zeta0_spec
 	psi0 = spec2grid(psi0_spec, gridtype)
 
-	# And we extract the horizontal velocity fields from the stream function
+	# And we extract the horizontal velocity fields from the streamfunction
 	u0_spec, v0_spec = compute_vel(psi0_spec)
 	u0 = spec2grid(u0_spec, gridtype) * derfact
 	v0 = spec2grid(v0_spec, gridtype) * derfact
-
-
-
-
-	# os.makedirs('temp/', exist_ok=True)
-
-	# fig, ax = plt.subplots()
-	# im = ax.pcolormesh(lons_dh,lats_dh,zeta0_grid)
-	# cbar = fig.colorbar(im, ax=ax)
-	# cbar.set_label('Vorticity (1/s)')
-	# ax.set_title(f'Vorticity field at t = {0/3600:.2f}h')
-	# fig.tight_layout()
-
-	# fig_name = f"vorticity_field_{output_name}_t{0/3600:.2f}h.png"
-	# fig.savefig('temp/' + fig_name)
-	# plt.close(fig)
-
-	# fig, ax = plt.subplots()
-	# im = ax.pcolormesh(lons_dh,lats_dh,psi0)
-	# cbar = fig.colorbar(im, ax=ax)
-	# cbar.set_label('psi (m^2/s)')
-	# ax.set_title(f'Stream function field at t = {0/3600:.2f}h')
-	# fig.tight_layout()
-
-	# fig_name = f"psi_field_{output_name}_t{0/3600:.2f}h.png"
-	# fig.savefig('temp/' + fig_name)
-	# plt.close(fig)
-
-	# fig, ax = plt.subplots()
-	# im = ax.pcolormesh(lons_dh,lats_dh,u0)
-	# cbar = fig.colorbar(im, ax=ax)
-	# cbar.set_label('Velocity (m/s)')
-	# ax.set_title(f'U field at t = {0/3600:.2f}h')
-	# fig.tight_layout()
-
-	# fig_name = f"u_field_{output_name}_t{0/3600:.2f}h.png"
-	# fig.savefig('temp/' + fig_name)
-	# plt.close(fig)
-
-
-
 
 	# We compute all the conserved values
 	energy = np.mean(0.5 * (u0**2 + v0**2))
@@ -384,7 +362,7 @@ if __name__ == '__main__':
 	next_save_time = save_time
 
 
-	# We start the time integration
+	# We start the time integration >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 	print("Starting time integration ...")
 
 	# We compute the advection term
@@ -393,58 +371,17 @@ if __name__ == '__main__':
 	# And perform a forward Euler step in time for the first integration
 	zeta_spec = zeta0_spec
 	zetaold_spec = zeta0_spec
-	# We apply the hyperdiffusion implicitly (i.e. (1+dt*hyp)zeta_i+1 = rhs_i))
+	# We apply the hyperdiffusion implicitly (i.e. (1 + dt*hyp)zeta_i+1 = rhs_i))
 	zetanew_spec = (zeta_spec + dt * adv0_spec) * hyp_denom1
-	# zetanew = spec2grid(zetanew_spec) * derfact
 	zetanew = spec2grid(zetanew_spec, gridtype)
 
-	# We can also extract the new stream function field
+	# We can also extract the new streamfunction field
 	psi_spec = inv_lap * zetanew_spec
 	
-	# And extract the new velocity fields
+	# And get the new velocity fields
 	u_spec, v_spec = compute_vel(psi_spec)
 	u = spec2grid(u_spec, gridtype) * derfact
 	v = spec2grid(v_spec, gridtype) * derfact
-
-
-
-
-	# fig, ax = plt.subplots()
-	# im = ax.pcolormesh(lons_dh,lats_dh,zetanew)
-	# cbar = fig.colorbar(im, ax=ax)
-	# cbar.set_label('Vorticity (1/s)')
-	# ax.set_title(f'Vorticity field at t = {dt/3600:.2f}h')
-	# fig.tight_layout()
-
-	# fig_name = f"vorticity_field_{output_name}_t{dt/3600:.2f}h.png"
-	# fig.savefig('temp/' + fig_name)
-	# plt.close(fig)
-
-	# fig, ax = plt.subplots()
-	# psi = spec2grid(psi_spec)
-	# im = ax.pcolormesh(lons_dh,lats_dh,psi)
-	# cbar = fig.colorbar(im, ax=ax)
-	# cbar.set_label('psi (m^2/s)')
-	# ax.set_title(f'Stream function field at t = {dt/3600:.2f}h')
-	# fig.tight_layout()
-
-	# fig_name = f"psi_field_{output_name}_t{dt/3600:.2f}h.png"
-	# fig.savefig('temp/' + fig_name)
-	# plt.close(fig)
-
-	# fig, ax = plt.subplots()
-	# im = ax.pcolormesh(lons_dh,lats_dh,u)
-	# cbar = fig.colorbar(im, ax=ax)
-	# cbar.set_label('Velocity (m/s)')
-	# ax.set_title(f'U field at t = {dt/3600:.2f}h')
-	# fig.tight_layout()
-
-	# fig_name = f"u_field_{output_name}_t{dt/3600:.2f}h.png"
-	# fig.savefig('temp/' + fig_name)
-	# plt.close(fig)
-
-
-
 
 	# Again, we comptute the conserved values
 	energy = np.mean(0.5 * (u**2 + v**2))
@@ -456,10 +393,10 @@ if __name__ == '__main__':
 	mean_vorticities.append(zetamean)
 
 
-	# Now, we can start the main integration loop
+	# Now, we can start the main integration loop >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 	for t in range(ti+2*dt, tf+dt, dt):
 
-		# We show on screen an updating counter showing the elapsed time of computation and 
+		# We display in the terminal an updating counter showing the elapsed time of computation and 
 		# the simulation time to visualize the program progress
 		elapsed = time.time() - start_time
 		sys.stdout.write(f"\rElapsed time: {elapsed:.2f}s | Simulation time: {t/3600:.2f}h")
@@ -474,22 +411,20 @@ if __name__ == '__main__':
 		adv_spec = compute_adv(u, v, zeta)
 
 		# Now, a Leapfrog scheme is used to perform the time integration
-		# Again, we apply the hyperdiffusion implicitly (i.e. (1+2dt*hyp)zeta_i+1 = rhs_i))
+		# Again, we apply the hyperdiffusion implicitly (i.e. (1 + 2dt*hyp)zeta_i+1 = rhs_i))
 		zetanew_spec = (zetaold_spec + 2 * dt * adv_spec) * hyp_denom2
 
-		# After the time step, we apply a Robert-Asselin-Williams filter to reduce the
-		# computational mode amplitude while still mantaining nearly the second order precision
-		# of the leapfrog scheme
+		# After the time step, we apply a Robert-Asselin-Williams (RAW) filter to reduce the
+		# computational mode amplitude and reaching up to third order precision
 		# We compute the correcting term (a centered difference)
 		delta = zetanew_spec - 2.0*zeta_spec + zetaold_spec
-		# And then we apply this correction to the current and new vorticity fields with a RAW filter
+		# And then we apply this correction to the current and new vorticity fields with the RAW filter
 		# damping it with nu and displacing zeta forwards and zetanew backwards with alpha
 		zeta_spec += nu*alpha/2.0 * delta
 		zetanew_spec += - nu*(1-alpha)/2.0 * delta
-		# zetanew = spec2grid(zetanew_spec) * derfact
 		zetanew = spec2grid(zetanew_spec, gridtype)
 
-		# Now we can extract the new stream function field
+		# Now we can extract the new streamfunction field
 		psi_spec = inv_lap * zetanew_spec
 
 		# And compute the new velocity fields
@@ -507,47 +442,7 @@ if __name__ == '__main__':
 		mean_vorticities.append(zetamean)
 
 
-
-
-		# fig, ax = plt.subplots()
-		# im = ax.pcolormesh(lons_dh,lats_dh,zetanew)
-		# cbar = fig.colorbar(im, ax=ax)
-		# cbar.set_label('Vorticity (1/s)')
-		# ax.set_title(f'Vorticity field at t = {t/3600:.2f}h')
-		# fig.tight_layout()
-
-		# fig_name = f"vorticity_field_{output_name}_t{t/3600:.2f}h.png"
-		# fig.savefig('temp/' + fig_name)
-		# plt.close(fig)
-
-		# fig, ax = plt.subplots()
-		# psi = spec2grid(psi_spec)
-		# im = ax.pcolormesh(lons_dh,lats_dh,psi)
-		# cbar = fig.colorbar(im, ax=ax)
-		# cbar.set_label('psi (m^2/s)')
-		# ax.set_title(f'Stream function field at t = {t/3600:.2f}h')
-		# fig.tight_layout()
-
-		# fig_name = f"psi_field_{output_name}_t{t/3600:.2f}h.png"
-		# fig.savefig('temp/' + fig_name)
-		# plt.close(fig)
-
-		# fig, ax = plt.subplots()
-		# im = ax.pcolormesh(lons_dh,lats_dh,u)
-		# cbar = fig.colorbar(im, ax=ax)
-		# cbar.set_label('Velocity (m/s)')
-		# ax.set_title(f'U field at t = {t/3600:.2f}h')
-		# fig.tight_layout()
-
-		# fig_name = f"u_field_{output_name}_t{t/3600:.2f}h.png"
-		# fig.savefig('temp/' + fig_name)
-		# plt.close(fig)
-
-
-
-
-
-		# Each iteration we check if the simulation is diverging
+		# After each iteration we check if the simulation is diverging
 		if np.isinf(zetanew).any():
 			raise ValueError(f"Infinity detected in vorticity field at t = {t/3600:.2f}h")
 		elif np.isnan(zetanew).any():
@@ -565,18 +460,17 @@ if __name__ == '__main__':
 				vorticities.append(zetanew.copy())
 			next_save_time += save_time
 
-
-	# In the end, we save the used config file in '.txt' format and the simulation data into
-	# NetCDF4 Datasets
+	# In the end, we save the results of the simulation >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 	print('')
 	print("Saving simulation results...")
 
-	# We first copy the config file used
+	# We first copy the config.py file used in a '.txt' file
 	with (open("config.py", 'r') as file, 
 		open(output_dir + output_name + f"/params_{output_name}.txt", 'w') as file_copy):
 		file_copy.write(file.read())
 
-	# Then, we start by creating the directory where the data will be saved
+	# Then, we save the simulation data into netCDF Datasets
+	# We start by creating the directory where the data will be saved
 	data_dir = output_dir + output_name + "/data/"
 	os.makedirs(data_dir, exist_ok=True)
 
@@ -613,8 +507,9 @@ if __name__ == '__main__':
 	
 	cons_file = f"conserved_values_{output_name}.nc"
 	cons.to_netcdf(data_dir + cons_file)
+	cons.close()
 
-	# And then the vorticity and stream function snapshots
+	# And then the vorticity and streamfunction snapshots
 
 	# First, we generate the standard time, latitude and longitude coordinates
 	if gridtype == 'GLQ':
@@ -665,20 +560,20 @@ if __name__ == '__main__':
 	)
 
 	evo.attrs = {
-		'description': 'Evolution of 500 hPa vorticity and stream function fields through BVE simulation',
+		'description': 'Evolution of 500 hPa relative vorticity and streamfunction fields through BVE simulation',
 		'Conventions': 'DF-1.7',
 		'history': f'Created on {time.ctime()}',
 		'source': 'Global barotropic vorticity equation simulation at 500 hPa in Python'
 	}
 	evo['streamfunction'].attrs = {
-		'description': '2D simulated stream function field',
+		'description': '2D simulated streamfunction field',
 		'units': 'm**2 s**-1',
 		'long_name': 'Stream function',
 		'standard_name': 'streamfunction',
 		'gridType': f'{gridtype} (T{lmax})'
 	}
 	evo['vorticity'].attrs = {
-		'description': '2D simulated vorticity field',
+		'description': '2D simulated relative vorticity field',
 		'units': 's**-1',
 		'long_name': 'Vorticity (relative)',
 		'standard_name': 'vorticity',
@@ -688,9 +583,10 @@ if __name__ == '__main__':
 
 	evo_file = f"fields_evolution_{output_name}.nc"
 	evo.to_netcdf(data_dir + evo_file)
+	evo.close()
 
 
-	# FIGURE PLOTTING ==============================================================================
+	# FIGURE PLOTTING =================================================================================================
 
 	print("\nGenerating figures...")
 
@@ -705,7 +601,7 @@ if __name__ == '__main__':
 	os.makedirs(im_dir, exist_ok=True)
 	os.makedirs(im_dir + "temp_frames/", exist_ok=True)
 
-	# 1) Evolution of the conserved values
+	# 1) Evolution of the conserved values >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
 	# We first read and extract the information in the corresponding Dataset
 	cons = xr.open_dataset(data_dir + cons_file, engine='netcdf4')
@@ -714,6 +610,8 @@ if __name__ == '__main__':
 	enstrophies = cons['enstrophy']
 	vorticity_means = cons['mean_vorticity']
 	iterations = cons['iteration']
+
+	cons.close()
 
 	# We establish a fixed format for the y axis
 	y_formatter = ticker.ScalarFormatter(useOffset=True, useMathText=True)
@@ -747,7 +645,7 @@ if __name__ == '__main__':
 	plt.savefig(im_dir + cons_file[:-3] + ".png", dpi=150)
 	
 
-	# 2) Evolution of the vorticity and stream function fields
+	# 2) Evolution of the vorticity and stream function fields >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
 	# Again, we read and extract all the information contained in the Dataset
 	evo = xr.open_dataset(data_dir + evo_file, engine='netcdf4')
@@ -764,7 +662,6 @@ if __name__ == '__main__':
 	# First we plot the vorticity field evolution
 
 	# We pick the levels of the colormap that best fit our data
-
 	# To do so, we use the percentiles to know the different scales of the data
 	all_data = vorticities.values.flatten()
 
@@ -780,7 +677,6 @@ if __name__ == '__main__':
 			np.linspace(-max_abs/2, max_abs/2, 11),
 			np.linspace(max_abs/2, max_abs, 5)
 			])
-
 	levels = np.unique(levels)
 	norm = BoundaryNorm(levels, 256)
 
@@ -808,7 +704,7 @@ if __name__ == '__main__':
 	gif_name = f"vorticity_field_{output_name}_evolution.gif"
 	imageio.mimsave(im_dir + gif_name, images, duration=250, loop=0)
 
-	# Finally, we plot the stream function field evolution
+	# Finally, we plot the streamfunction field evolution
 	images = []
 	vmin = np.min(streamfunctions.values)
 	vmax = np.max(streamfunctions.values)
@@ -820,8 +716,8 @@ if __name__ == '__main__':
 		fig, ax = plt.subplots(figsize=(8,4))
 		mesh = ax.contourf(lons,lats,streamfunctions[i],cmap='viridis',
 					 		levels=lvls, extend='both')
-		cbar = fig.colorbar(mesh, ax=ax, label=r'Stream function ($\mathrm{m^2/s}$)')
-		ax.set_title(f'Stream function field at t = {times[i]}h')
+		cbar = fig.colorbar(mesh, ax=ax, label=r'Streamfunction ($\mathrm{m^2/s}$)')
+		ax.set_title(f'Streamfunction field at t = {times[i]}h')
 		ax.set_xlabel(r'$\lambda$ (º)')
 		ax.set_ylabel(r'$\phi$ (º)')
 		fig.tight_layout()
@@ -834,3 +730,5 @@ if __name__ == '__main__':
 	
 	gif_name = f"stream_function_field_{output_name}_evolution.gif"
 	imageio.mimsave(im_dir + gif_name, images, duration=250, loop=0)
+
+	evo.close()
