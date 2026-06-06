@@ -264,7 +264,7 @@ if __name__ == '__main__':
 	# We first import all the initial parameters defined in the config.py file
 	from config import *
 
-	# We first verify that truncation is lower than the grid sampling
+	# We begin verifying that truncation is lower than the grid sampling
 	if lmax > sampl:
 		raise ValueError("lmax must be smaller or equal to sampl")
 	
@@ -460,6 +460,7 @@ if __name__ == '__main__':
 				vorticities.append(zetanew.copy())
 			next_save_time += save_time
 
+
 	# In the end, we save the results of the simulation >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 	print('')
 	print("Saving simulation results...")
@@ -509,7 +510,7 @@ if __name__ == '__main__':
 	cons.to_netcdf(data_dir + cons_file)
 	cons.close()
 
-	# And then the vorticity and streamfunction snapshots
+	# And then the relative vorticity and streamfunction snapshots
 
 	# First, we generate the standard time, latitude and longitude coordinates
 	if gridtype == 'GLQ':
@@ -645,7 +646,7 @@ if __name__ == '__main__':
 	plt.savefig(im_dir + cons_file[:-3] + ".png", dpi=150)
 	
 
-	# 2) Evolution of the vorticity and stream function fields >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+	# 2) Evolution of the relative vorticity and streamfunction fields >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
 	# Again, we read and extract all the information contained in the Dataset
 	evo = xr.open_dataset(data_dir + evo_file, engine='netcdf4')

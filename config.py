@@ -1,10 +1,11 @@
 """
-Configuration file for the global non-linear non-divergent barotropic vorticity equation (BVE) simulation.
+Configuration file for the global non-divergent barotropic vorticity equation (BVE) simulation.
 All the initial conditions of the simulation are defined in this file. The code is prepared to read the
 netCDF file of an ERA5 reanalysis relative vorticity field, but it can easily be adapted for any other
 dataset options.
 This script has to be placed in the same direcotry as the main program main_BVE_glob.py
 """
+
 
 import xarray as xr
 import numpy as np
@@ -24,7 +25,7 @@ tau_d = 3 * 3600                      # Hyperdiffusion time scale (in s)
 
 # RAW filter
 nu = 0.1                              # Damping factor   
-alpha = 0.53                          # Displacement factor
+alpha = 0.5                           # Displacement factor
 
 
 # OUTPUT ====================================================================================================
