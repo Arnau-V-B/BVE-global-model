@@ -1,5 +1,14 @@
 # Global non-divergent Barotropic Vorticity Equation (BVE) solver
 
+> [!WARNING]
+> **ARCHIVED REPOSITORY**
+> 
+> This repository has ben **archived** and `BVE-global-model` is now part of the [BVE-models](https://github.com/Arnau-V-B/BVE-models.git) repository, together with two more BVE solvers:
+> - `BVE-global-linear-model`: which also solves the non-divergent BVE globally but does it linearizing the equation over a mean zonal flow (for idealized experiments)
+> - `BVE-beta-channel-model`: which solves the non-divergent BVE in a beta-channel ($$\beta=ctt.$$) linearizing it over a mean zonal flow (for analytic Rossby wave dispersion analyses)
+>
+> Please visit the new repository for all future updates.
+
 This program solves the non-divergent BVE on the sphere using spherical harmonics transforms. It is designed for global atmospheric dynamics simulations, such as 500 hPa flow evolution, with realistic initial conditions of single-level relative vorticity fields from reanalysis data (e.g., ERA5). The workflow of the code is based on [technical documentation](https://www.gfdl.noaa.gov/wp-content/uploads/files/user_files/pjp/barotropic.pdf) from the NOAA Geophysical Fluid Dynamics Laboratory (GFDL).
 
 The model uses a spectral transform method with triangular truncation, supports both equally sampled (Driscoll–Healy) and Gauss–Legendre quadrature grids (see SHTOOLS [documentation](https://shtools.github.io/SHTOOLS/)), and includes implicit hyperdiffusion for numerical stability. The time integration follows a leapfrog scheme with a Robert–Asselin–Williams (RAW) filter to control its associated computational mode and improve the accuracy to third order (i.e. $$O(\Delta t^3)$$), and the time step is set to 30 min (but it can be lowered if numerical instability appears).
@@ -40,7 +49,7 @@ $$\zeta_i = \zeta_i + \frac{\nu \alpha}{2}(\zeta_{i+1} - 2\zeta_i + \zeta_{i-1})
 
 $$\zeta_{i+1} = \zeta_{i+1} - \frac{\nu (1-\alpha)}{2}(\zeta_{i+1} - 2\zeta_i + \zeta_{i-1});$$
 
-where $$\nu=0.1$$ and $$\alpha=0.53$$ seem to conserve kinetic energy, enstrophy and mean vorticity the most.
+where $$\nu=0.1$$ and $$\alpha=0.5$$ seem to conserve kinetic energy, enstrophy and mean vorticity the most.
 
 ## Program structure
 
@@ -49,7 +58,9 @@ The execution of the program relies on two files that need to be in the same dir
 2. `main_BVE_glob.py`. This is the main program. It contains all the internal functions defined, the execution pipeline and the saving and plotting routines of the output results. The final plotting routine can be disabled to save time if more customized plots are desired.
 
 Once the initial conditions are properly set in `config.py`, to run the simulation script `main_BVE_glob.py` has to be executed. For example, on Windows 11 this can be done by typing in the following line in the CMD terminal:
-```python main_BVE_glob.py```
+```
+python main_BVE_glob.py
+```
 
 During the execution an `output/` folder is created in the same directory where all the simulation output is saved. In it a file named `params_exp_().txt` contains the `config.py` copy with the initial conditions used in the simulation, and two more folders are created `data/` and `figures/`. The former contains two netCDF files with the register of conserved values (i.e. knietic energy, enstrophy and mean vorticity) in `conserved_values_exp_().nc` and the streamfunction and relative vorticity fields evolution in `fields_evolution_exp_().nc`. In the later, a figure showing the evolution of the three conserved values (`conserved_values_exp_().png`), two GIFs with the evolution of the fields (`.gif`) and the single frames used for both of them, are saved. 
 
