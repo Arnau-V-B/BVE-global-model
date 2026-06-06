@@ -2,31 +2,45 @@
 
 This program solves the non-divergent BVE on the sphere using spherical harmonics transforms. It is designed for global atmospheric dynamics simulations, such as 500 hPa flow evolution, with realistic initial conditions of single-level relative vorticity fields from reanalysis data (e.g., ERA5). The workflow of the code is based on [technical documentation](https://www.gfdl.noaa.gov/wp-content/uploads/files/user_files/pjp/barotropic.pdf) from the NOAA Geophysical Fluid Dynamics Laboratory (GFDL).
 
-The model uses a spectral transform method with triangular truncation, supports both equally sampled (Driscoll–Healy) and Gauss–Legendre quadrature grids (see SHTOOLS [documentation](https://shtools.github.io/SHTOOLS/)), and includes implicit hyperdiffusion for numerical stability. The time integration follows a leapfrog scheme with a Robert–Asselin–Williams (RAW) filter to control its associated computational mode and improve the accuracy to third order (i.e. $O(\Delta t^3)$), and the time step is set to 30 min (but it can be lowered if numerical instability appears).
+The model uses a spectral transform method with triangular truncation, supports both equally sampled (Driscoll–Healy) and Gauss–Legendre quadrature grids (see SHTOOLS [documentation](https://shtools.github.io/SHTOOLS/)), and includes implicit hyperdiffusion for numerical stability. The time integration follows a leapfrog scheme with a Robert–Asselin–Williams (RAW) filter to control its associated computational mode and improve the accuracy to third order (i.e. $$O(\Delta t^3)$$), and the time step is set to 30 min (but it can be lowered if numerical instability appears).
 
 ## Mathematical formalism
 
 For a barotropic atmosphere with constant height, the evolution of relative vorticity can be described pretty well with the non-divergent barotropic vorticity equation:
-$$\frac{\partial \zeta}{\partial t} = - \vec{v}\cdot\vec{\nabla}(\zeta + f) \quad \longleftrightarrow \quad \frac{\partial}{\partial t}(\nabla^2\psi) = - J(\psi, \nabla^2\psi + f);$$
-where $\vec{v}$ is the horizontal wind velocity, $\zeta$ is the relative vorticity (defined as $\zeta = \frac{\partial v}{\partial x} - \frac{\partial u}{\partial y}$), $\psi$ is the streamfuncion (defined as $\vec{v} = \hat{k} \times \vec{\nabla}\psi$ or $\zeta = \nabla^2\psi$), $f = 2\Omega\sin(\theta)$ is the Coriolis parameter and $J(A,B) = \frac{\partial A}{\partial x} \frac{\partial B}{\partial y} - \frac{\partial A}{\partial y}\frac{\partial B}{\partial x}$ is the Jacobi operator.
 
-On the spherical Earth surface, fields are periodic in longitude $\lambda$ (i.e. azimuthal angle $\phi$) and enclosed in latitude $\theta$ (i.e. copolar angle $-\Theta$), so they can be represented as series of spherical harmonics up to a given order $l_{max}$ (i.e. truncation wavenumber):
-$$\psi(\lambda,\theta) = \sum_{l=0}^{lmax}\sum_{m=-l}^{l} \psi_{lm} P_{lm}(sin\theta) e^{im\lambda};$$
-where $P_{lm}$ is the associated Legendre polynomial of order $m$ and degree $l$. In this "spectral" space, the spatial derivatives ($\frac{\partial}{\partial x} \equiv \frac{1}{R\cos(\theta)}\frac{\partial}{\partial \lambda}$ and $\frac{\partial}{\partial y} \equiv \frac{1}{R}\frac{\partial}{\partial \theta}$) become analytic and can be solved through recursive relations such as:
+$$\frac{\partial \zeta}{\partial t} = - \vec{v}\cdot\vec{\nabla}(\zeta + f) \quad \longleftrightarrow \quad \frac{\partial}{\partial t}(\nabla^2\psi) = - J(\psi, \nabla^2\psi + f);$$
+
+where $$\vec{v}$$ is the horizontal wind velocity, $$\zeta$$ is the relative vorticity (defined as $$\zeta = \frac{\partial v}{\partial x} - \frac{\partial u}{\partial y}$$), $\psi$ is the streamfuncion (defined as $$\vec{v} = \hat{k} \times \vec{\nabla}\psi$$ or $$\zeta = \nabla^2\psi$$), $$f = 2\Omega\sin(\theta)$$ is the Coriolis parameter and $$J(A,B) = \frac{\partial A}{\partial x} \frac{\partial B}{\partial y} - \frac{\partial A}{\partial y}\frac{\partial B}{\partial x}$$ is the Jacobi operator.
+
+On the spherical Earth surface, fields are periodic in longitude $\lambda$ (i.e. azimuthal angle $\phi$) and enclosed in latitude $\theta$ (i.e. copolar angle $-\Theta$), so they can be represented as series of spherical harmonics up to a given order $l_{max}$ (the truncation wavenumber):
+
+$$\psi(\lambda,\theta) = \sum_{l=0}^{l_{max}}\sum_{m=-l}^{l} \psi_{lm} P_{lm}(sin\theta) e^{im\lambda};$$
+
+where $$P_{lm}$$ is the associated Legendre polynomial of order $$m$$ and degree $$l$$. In this "spectral" space, the spatial derivatives ($$\frac{\partial}{\partial x} \equiv \frac{1}{R\cos(\theta)}\frac{\partial}{\partial \lambda}$$ and $$\frac{\partial}{\partial y} \equiv \frac{1}{R}\frac{\partial}{\partial \theta}$$) become analytic and can be solved through recursive relations such as:
+
 $$\frac{\partial \hat{\psi}_{lm}}{\partial \lambda} = i m \hat{\psi}_{lm}$$
-$$\cos(\theta) \frac{\partial \hat{\psi}_{lm}}{\partial \theta} = (l+2) \epsilon_{l+1,m} \hat{\psi}_{l+1,m} - (l-1) \epsilon_{l,m} \hat{\psi}_{l-1,m} \quad ; \quad \epsilon_{lm} = \sqrt{\frac{l^2 - m^2}{4l^2 - 1}}$$
+
+$$\cos(\theta) \frac{\partial \hat{\psi}_{lm}}{\partial \theta} = (l+2) \epsilon_{l+1,m} \hat{\psi}_{l+1,m} - (l-1) \epsilon_{l,m} \hat{\psi}_{l-1,m} \quad \mathrm{; where} \quad \epsilon_{lm} = \sqrt{\frac{l^2 - m^2}{4l^2 - 1}}$$
 
 To prevent the simulation from being contaminated with aliasing of the highest modes (i.e. the smallest waves) resulting from the products between fields, an extra term has to be added to the BVE:
+
 $$\frac{\partial \zeta}{\partial t} = - \vec{v}\cdot\vec{\nabla}(\zeta + f) - \eta \nabla^4 \zeta \quad \mathrm{; with} \quad \eta = \frac{R^4}{\tau (l_{max}(l_{max} + 1))^2};$$
-where $R$ is the Earth radius, $\tau$ the decay rate of the target waves and $l_{max}$ the highest wavenumber. This is known as the hyperdiffusion term and only dissipates the response at the smallest unresolved scales, so that they disappear soon after they are formed and also transfer of eddy energy from large to small scales is partially simulated. By default, the decay rate is set to 3 hours, but it can be increased to for better resolution or decreased for even more smoothing.
+
+where $$R$$ is the Earth radius, $$\tau$$ the decay rate of the target waves and $$l_{max}$$ the highest wavenumber. This is known as the hyperdiffusion term and only dissipates the response at the smallest unresolved scales, so that they disappear soon after they are formed and also transfer of eddy energy from large to small scales is partially simulated. By default, the decay rate is set to 3 hours, but it can be increased to for better resolution or decreased for even more smoothing.
 
 Finally, to integrate in time, a first order Euler scheme is used at the first iteration:
+
 $$\zeta_{i+1} = \zeta_i + \Delta t RHS_i,$$
+
 and then a third order scheme based on a leapfrog with RAW filter is used for the following iterations:
+
 $$\zeta_{i+1} = \zeta_{i-1} + 2\Delta t RHS_i$$
+
 $$\zeta_i = \zeta_i + \frac{\nu \alpha}{2}(\zeta_{i+1} - 2\zeta_i + \zeta_{i-1})$$
+
 $$\zeta_{i+1} = \zeta_{i+1} - \frac{\nu (1-\alpha)}{2}(\zeta_{i+1} - 2\zeta_i + \zeta_{i-1});$$
-where $\nu=0.1$ and $\alpha=0.53$ seem to conserve kinetic energy, enstrophy and mean vorticity the most.
+
+where $$\nu=0.1$$ and $$\alpha=0.53$$ seem to conserve kinetic energy, enstrophy and mean vorticity the most.
 
 ## Program structure
 
